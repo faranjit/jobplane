@@ -3,6 +3,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"jobplane/internal/store"
@@ -50,20 +51,32 @@ func (a *Agent) processOne(ctx context.Context) {
 		return
 	}
 
+	// Switch to a background context for execution.
+	// The worker context is only used for dequeuing.
+	// If 'ctx' is cancelled (SIGTERM) while the job is running, we want to allow it to finish.
+	execContext := context.Background()
+
 	// Start Runtime
-	handle, err := a.runtime.Start(ctx, runtime.StartOptions{Payload: payload})
+	handle, err := a.runtime.Start(execContext, runtime.StartOptions{Payload: []byte(payload)})
 	if err != nil {
-		a.queue.Fail(ctx, nil, execID, "Failed to start runtime")
+		a.queue.Fail(execContext, nil, execID, "Failed to start runtime")
 		return
 	}
 
 	// Wait for result
-	result, err := handle.Wait(ctx)
+	result, err := handle.Wait(execContext)
+	if err != nil {
+		a.queue.Fail(execContext, nil, execID, fmt.Sprintf("Runtime waiting error: %v", err))
+	}
 
 	// Update Queue
 	if result.ExitCode == 0 {
-		a.queue.Complete(ctx, nil, execID, 0)
+		a.queue.Complete(execContext, nil, execID, 0)
 	} else {
-		a.queue.Fail(ctx, nil, execID, result.Error.Error())
+		errorMessage := fmt.Sprintf("Exit code %d", result.ExitCode)
+		if result.Error != nil {
+			errorMessage = result.Error.Error()
+		}
+		a.queue.Fail(execContext, nil, execID, errorMessage)
 	}
 }

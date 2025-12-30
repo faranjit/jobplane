@@ -1,20 +1,24 @@
 // Package store contains the database layer for jobplane.
 package store
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // Tenant represents a tenant in the multi-tenant system.
 // All operations must be scoped by TenantID.
 type Tenant struct {
-	ID        string
+	ID        uuid.UUID
 	Name      string
 	CreatedAt time.Time
 }
 
 // Job represents a job definition submitted by a tenant.
 type Job struct {
-	ID        string
-	TenantID  string
+	ID        uuid.UUID
+	TenantID  uuid.UUID
 	Name      string
 	Image     string // Container image to run
 	Command   []string
@@ -23,9 +27,9 @@ type Job struct {
 
 // Execution represents a single execution attempt of a job.
 type Execution struct {
-	ID           string
-	JobID        string
-	TenantID     string
+	ID           uuid.UUID
+	JobID        uuid.UUID
+	TenantID     uuid.UUID
 	Status       ExecutionStatus
 	Attempt      int
 	StartedAt    *time.Time
