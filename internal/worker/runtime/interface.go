@@ -17,18 +17,25 @@ type Runtime interface {
 type StartOptions struct {
 	Image   string
 	Command []string
+	Payload []byte
 	Env     map[string]string
 	Timeout int // seconds
 }
 
-// Handle represents a running job execution.
-type Handle interface {
-	// Wait blocks until the job completes and returns the exit code.
-	Wait(ctx context.Context) (int, error)
+// ExitResult contains the result of a job execution.
+type ExitResult struct {
+	ExitCode int
+	Error    error
+}
 
-	// Stop forcefully terminates the job.
+// Handle represents a SPECIFIC running job execution.
+type Handle interface {
+	// Wait blocks until this specific job completes.
+	Wait(ctx context.Context) (ExitResult, error)
+
+	// Stop forcefully terminates this specific job.
 	Stop(ctx context.Context) error
 
-	// Logs returns a reader for the job's stdout/stderr.
-	Logs() io.ReadCloser
+	// StreamLogs returns a reader for this specific job's logs.
+	StreamLogs(ctx context.Context) (io.ReadCloser, error)
 }

@@ -3,26 +3,30 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Queue defines the interface for job queue operations.
 // Implementations must use SELECT ... FOR UPDATE SKIP LOCKED semantics.
 type Queue interface {
 	// Enqueue adds a new execution to the queue.
-	Enqueue(ctx context.Context, execution *Execution) error
+	Enqueue(ctx context.Context, tx DBTransaction, jobID uuid.UUID, payload json.RawMessage) (int64, error)
 
-	// Dequeue claims the next available execution for processing.
-	// Returns nil if no work is available.
-	Dequeue(ctx context.Context, tenantID string) (*Execution, error)
+	// Dequeue claims the next available execution.
+	// It updates the row to 'RUNNING' status and sets a visibility timeout.
+	// It does NOT return an AckFunc; the worker must call Complete or Fail.
+	Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error)
 
-	// Complete marks an execution as completed with the given exit code.
-	Complete(ctx context.Context, executionID string, exitCode int) error
+	// Complete marks execution as SUCCEEDED/COMPLETED and saves the exit code.
+	Complete(ctx context.Context, tx DBTransaction, executionID uuid.UUID, exitCode int) error
 
-	// Fail marks an execution as failed with the given error message.
-	// If retries remain, the execution will be re-queued with backoff.
-	Fail(ctx context.Context, executionID string, errMsg string) error
+	// Fail marks execution as FAILED.
+	// If retries are exhausted, it saves the errMsg.
+	Fail(ctx context.Context, tx DBTransaction, executionID uuid.UUID, errMsg string) error
 
-	// SetVisibleAfter sets when the execution becomes visible again (for retry backoff).
-	SetVisibleAfter(ctx context.Context, executionID string, visibleAfter time.Time) error
+	// SetVisibleAfter extends the visibility timeout (heartbeat).
+	SetVisibleAfter(ctx context.Context, tx DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error
 }
