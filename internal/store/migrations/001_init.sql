@@ -27,6 +27,7 @@ CREATE TABLE executions (
     tenant_id UUID REFERENCES tenants(id),
     status TEXT CHECK (status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')),
     exit_code INT,
+    error_message TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     started_at TIMESTAMP,
     finished_at TIMESTAMP
@@ -44,5 +45,5 @@ CREATE TABLE execution_queue (
 );
 
 -- Index for the Worker's "Dequeue" query
-CREATE INDEX idx_queue_poll ON execution_queue (visible_after) 
+CREATE INDEX idx_queue_poll ON execution_queue (tenant_id, visible_after) 
 WHERE execution_id IS NOT NULL;
