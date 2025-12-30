@@ -3,6 +3,8 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"jobplane/internal/auth"
 	"jobplane/internal/store"
 	"net/http"
@@ -35,16 +37,15 @@ func AuthMiddleware(s store.TenantStore) func(http.Handler) http.Handler {
 			apiKeyHash := auth.HashKey(apiKey)
 			tenant, err := s.GetTenantByAPIKeyHash(r.Context(), apiKeyHash)
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					http.Error(w, "Invalid API key", http.StatusUnauthorized)
+					return
+				}
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
 
-			if tenant == nil {
-				http.Error(w, "Invalid API key", http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), tenantIDKey{}, tenant.ID.String())
+			ctx := context.WithValue(r.Context(), tenantIDKey{}, tenant.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

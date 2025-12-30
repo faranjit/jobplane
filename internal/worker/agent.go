@@ -67,6 +67,7 @@ func (a *Agent) processOne(ctx context.Context) {
 	result, err := handle.Wait(execContext)
 	if err != nil {
 		a.queue.Fail(execContext, nil, execID, fmt.Sprintf("Runtime waiting error: %v", err))
+		return
 	}
 
 	// Update Queue

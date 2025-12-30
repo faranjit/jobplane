@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -101,7 +102,7 @@ func TestAuthMiddleware_StoreError(t *testing.T) {
 func TestAuthMiddleware_TenantNotFound(t *testing.T) {
 	mockStore := &mockTenantStore{
 		tenant: nil,
-		err:    nil,
+		err:    sql.ErrNoRows,
 	}
 	middleware := AuthMiddleware(mockStore)
 
