@@ -4,15 +4,28 @@ package api
 
 import "time"
 
-// SubmitJobRequest is the request body for submitting a new job.
-type SubmitJobRequest struct {
-	Name    string   `json:"name"`
-	Image   string   `json:"image"`
-	Command []string `json:"command,omitempty"`
+// CreateTenantRequest is the request body for creating a new tenant.
+type CreateTenantRequest struct {
+	Name string `json:"name"`
 }
 
-// SubmitJobResponse is the response body after submitting a job.
-type SubmitJobResponse struct {
+// CreateTenantResponse is the response body after creating a tenant.
+type CreateTenantResponse struct {
+	ID     string `json:"tenant_id"`
+	Name   string `json:"name"`
+	ApiKey string `json:"api_key"`
+}
+
+// CreateJobRequest is the request body for creating a new job.
+type CreateJobRequest struct {
+	Name           string   `json:"name"`
+	Image          string   `json:"image"`
+	Command        []string `json:"command,omitempty"`
+	DefaultTimeout int      `json:"default_timeout,omitempty"`
+}
+
+// CreateJobResponse is the response body after submitting a job.
+type CreateJobResponse struct {
 	JobID       string `json:"job_id"`
 	ExecutionID string `json:"execution_id"`
 }

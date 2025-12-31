@@ -2,30 +2,41 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"jobplane/internal/store"
 	"net/http"
 )
 
+// StoreFactory combines the interfaces needed for the controller to function.
+type StoreFactory interface {
+	BeginTx(ctx context.Context) (*sql.Tx, error)
+	store.JobStore
+	store.TenantStore
+	store.Queue
+}
+
 // Handlers holds all HTTP handlers and their dependencies.
 type Handlers struct {
-	// TODO: Add store dependencies
+	store StoreFactory
 }
 
-// New creates a new Handlers instance.
-func New() *Handlers {
-	return &Handlers{}
+// New creates a new Handlers instance with the given store dependency.
+func New(s StoreFactory) *Handlers {
+	return &Handlers{store: s}
 }
 
-// SubmitJob handles POST /jobs - submits a new job for execution.
-func (h *Handlers) SubmitJob(w http.ResponseWriter, r *http.Request) {
-	// TODO: Validate request, create job, enqueue execution
+// A helper function to write standard JSON responses.
+func (h *Handlers) respondJson(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if payload != nil {
+		json.NewEncoder(w).Encode(payload)
+	}
 }
 
-// GetJobStatus handles GET /jobs/{id} - returns job status.
-func (h *Handlers) GetJobStatus(w http.ResponseWriter, r *http.Request) {
-	// TODO: Fetch job and return status
-}
-
-// ListExecutions handles GET /jobs/{id}/executions - returns execution history.
-func (h *Handlers) ListExecutions(w http.ResponseWriter, r *http.Request) {
-	// TODO: Fetch executions for job
+// A helper function to return consistent error messages.
+func (h *Handlers) httpError(w http.ResponseWriter, message string, code int) {
+	h.respondJson(w, code, map[string]string{"error": message})
 }

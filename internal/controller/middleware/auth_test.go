@@ -20,6 +20,10 @@ type mockTenantStore struct {
 	err    error
 }
 
+func (m *mockTenantStore) CreateTenant(ctx context.Context, tenant *store.Tenant, hashedKey string) error {
+	return m.err
+}
+
 func (m *mockTenantStore) GetTenantByID(ctx context.Context, id uuid.UUID) (*store.Tenant, error) {
 	return m.tenant, m.err
 }

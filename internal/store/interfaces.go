@@ -15,11 +15,29 @@ type DBTransaction interface {
 	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
 }
 
-// TenantStore defines the methods for tenant operations.
+// TenantStore handles retrieving tenant information for authentication.
 type TenantStore interface {
+	// CreateTenant inserts a new tenant to the database
+	CreateTenant(ctx context.Context, tenant *Tenant, hashedKey string) error
+
 	// GetTenantByID returns a tenant by its ID.
 	GetTenantByID(ctx context.Context, id uuid.UUID) (*Tenant, error)
 
 	// GetTenantByAPIKeyHash returns a tenant by its API key hash.
 	GetTenantByAPIKeyHash(ctx context.Context, hash string) (*Tenant, error)
+}
+
+// JobStore handles the persistence of Job definitions and Execution history.
+type JobStore interface {
+	// CreateJob inserts a new job definition to the database
+	CreateJob(ctx context.Context, tx DBTransaction, job *Job) error
+
+	// GetJobByID returns a job by its ID.
+	GetJobByID(ctx context.Context, id uuid.UUID) (*Job, error)
+
+	// CreateExecution inserts the initial state of a new execution to the database.
+	CreateExecution(ctx context.Context, tx DBTransaction, execution *Execution) error
+
+	// GetExecutionByID returns an execution by its ID.
+	GetExecutionByID(ctx context.Context, id uuid.UUID) (*Execution, error)
 }
