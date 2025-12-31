@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
 	"jobplane/pkg/api"
@@ -34,12 +35,11 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := uuid.New()
-	executionID := uuid.New()
 
 	job := &store.Job{
 		ID:             jobID,
 		TenantID:       tenantID,
-		Name:           req.Image,
+		Name:           req.Name,
 		Image:          req.Image,
 		Command:        req.Command,
 		DefaultTimeout: req.DefaultTimeout,
@@ -66,19 +66,21 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := api.CreateJobResponse{
-		JobID:       jobID.String(),
-		ExecutionID: executionID.String(),
+		JobID: jobID.String(),
 	}
 	h.respondJson(w, http.StatusOK, resp)
 }
 
+// RunJob handles POST /jobs/{id}/run.
+// Creates an execution history and enqueues it,
+// so workers can pull it to run.
 func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	jobIDStr := r.PathValue("id")
 	jobID, err := uuid.Parse(jobIDStr)
 	if err != nil {
-		h.httpError(w, "Missing job id", http.StatusBadRequest)
+		h.httpError(w, "Invalid job id", http.StatusBadRequest)
 		return
 	}
 
@@ -89,8 +91,9 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := h.store.GetJobByID(ctx, jobID)
-	if err != nil {
-		h.httpError(w, "Failed to find the related job", http.StatusNotFound)
+	fmt.Printf("%v", job)
+	if err != nil || job.TenantID != tenantID {
+		h.httpError(w, "Related job not found", http.StatusNotFound)
 		return
 	}
 
@@ -127,4 +130,6 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		h.httpError(w, "Failed to commit transaction", http.StatusInternalServerError)
 	}
+
+	h.respondJson(w, http.StatusOK, map[string]string{"execution_id": execution.ID.String()})
 }

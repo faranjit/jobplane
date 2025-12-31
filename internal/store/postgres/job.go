@@ -36,10 +36,17 @@ func (s *Store) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error
 	query := "SELECT * FROM jobs WHERE id = $1"
 
 	var job store.Job
+	var cmdJSON []byte
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&job.ID, &job.TenantID, &job.Name, &job.Image, &job.Command, &job.DefaultTimeout, &job.CreatedAt)
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&job.ID, &job.TenantID, &job.Name, &job.Image, &cmdJSON, &job.DefaultTimeout, &job.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(cmdJSON) > 0 {
+		if err := json.Unmarshal(cmdJSON, &job.Command); err != nil {
+			return nil, err
+		}
 	}
 
 	return &job, nil

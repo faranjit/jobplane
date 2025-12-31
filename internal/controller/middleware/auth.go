@@ -60,3 +60,9 @@ func TenantIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := v.(uuid.UUID)
 	return id, ok
 }
+
+// NewContextWithTenantID returns a new context with the given tenant ID.
+// This is used ONLY for testing handlers in isolation.
+func NewContextWithTenantID(ctx context.Context, tenantID uuid.UUID) context.Context {
+	return context.WithValue(ctx, tenantIDKey{}, tenantID)
+}

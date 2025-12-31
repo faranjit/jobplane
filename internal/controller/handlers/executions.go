@@ -14,8 +14,12 @@ import (
 func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// TODO: Extract ID from URL
-	executionID := uuid.New()
+	executionIDStr := r.PathValue("id")
+	executionID, err := uuid.Parse(executionIDStr)
+	if err != nil {
+		h.httpError(w, "Invalid execution id", http.StatusBadRequest)
+		return
+	}
 
 	tenantID, ok := middleware.TenantIDFromContext(ctx)
 	if !ok {
@@ -25,7 +29,7 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 
 	execution, err := h.store.GetExecutionByID(ctx, executionID)
 	if err != nil || execution.TenantID != tenantID {
-		h.httpError(w, "Failed to find execution", http.StatusNotFound)
+		h.httpError(w, "Execution not found", http.StatusNotFound)
 		return
 	}
 
@@ -42,8 +46,12 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) InternalHeartbeat(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// TODO: Extract ID
-	executionID := uuid.New()
+	executionIDStr := r.PathValue("id")
+	executionID, err := uuid.Parse(executionIDStr)
+	if err != nil {
+		h.httpError(w, "Invalid execution id", http.StatusBadRequest)
+		return
+	}
 
 	// Extend visibility by 5 minutes from now
 	newVisibility := time.Now().Add(5 * time.Minute)
@@ -61,8 +69,12 @@ func (h *Handlers) InternalHeartbeat(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) InternalUpdateResult(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// TODO: Extract ID
-	executionID := uuid.New()
+	executionIDStr := r.PathValue("id")
+	executionID, err := uuid.Parse(executionIDStr)
+	if err != nil {
+		h.httpError(w, "Invalid execution id", http.StatusBadRequest)
+		return
+	}
 
 	var req struct {
 		ExitCode int    `json:"exit_code"`

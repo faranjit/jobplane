@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: jobplane_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      # Mount the migration file
+      - ./internal/store/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+      # Persist data
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

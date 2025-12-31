@@ -1,6 +1,12 @@
 // Package config handles environment variable loading for ports, database strings, etc.
 package config
 
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
 // Config holds all configuration values for the application.
 type Config struct {
 	// Database connection string
@@ -15,6 +21,34 @@ type Config struct {
 
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
-	// TODO: Load from environment variables
-	return &Config{}, nil
+	dbUrl := os.Getenv("DATABASE_URL")
+	if dbUrl == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+
+	portStr := os.Getenv("PORT")
+	port := 6161 // Default
+	if portStr != "" {
+		p, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid PORT: %w", err)
+		}
+		port = p
+	}
+
+	concurrencyStr := os.Getenv("WORKER_CONCURRENCY")
+	concurrency := 5 // Default
+	if concurrencyStr != "" {
+		c, err := strconv.Atoi(concurrencyStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WORKER_CONCURRENCY: %w", err)
+		}
+		concurrency = c
+	}
+
+	return &Config{
+		DatabaseURL:       dbUrl,
+		HTTPPort:          port,
+		WorkerConcurrency: concurrency,
+	}, nil
 }

@@ -4,6 +4,10 @@ package postgres
 import (
 	"context"
 	"database/sql"
+
+	_ "github.com/lib/pq"
+
+	"jobplane/internal/store"
 )
 
 // Store is the PostgreSQL implementation of the application's storage interfaces.
@@ -15,7 +19,7 @@ type Store struct {
 // New creates a connected Store instance.
 // It verifies the connection with a Ping before returning.
 func New(ctx context.Context, databaseURL string) (*Store, error) {
-	db, err := sql.Open("postgress", databaseURL)
+	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +39,6 @@ func (s *Store) Close() error {
 
 // BeginTx starts a new transaction.
 // The caller is responsible for calling Commit() or Rollback().
-func (s *Store) BeginTx(ctx context.Context) (*sql.Tx, error) {
+func (s *Store) BeginTx(ctx context.Context) (store.Tx, error) {
 	return s.db.BeginTx(ctx, nil)
 }

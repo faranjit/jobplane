@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"jobplane/internal/store"
 
 	"github.com/google/uuid"
@@ -9,7 +10,7 @@ import (
 
 func (s *Store) CreateTenant(ctx context.Context, tenant *store.Tenant, hashedKey string) error {
 	query := `
-		INSERT INTO jobs (id, name, api_key_hash, created_at)
+		INSERT INTO tenants (id, name, api_key_hash, created_at)
 		VALUES ($1, $2, $3, $4)
 	`
 
@@ -19,6 +20,9 @@ func (s *Store) CreateTenant(ctx context.Context, tenant *store.Tenant, hashedKe
 		hashedKey,
 		tenant.CreatedAt,
 	)
+	if err != nil {
+		fmt.Printf("Error during create a tenant: %v", err)
+	}
 	return err
 }
 

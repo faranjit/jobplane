@@ -26,8 +26,7 @@ type CreateJobRequest struct {
 
 // CreateJobResponse is the response body after submitting a job.
 type CreateJobResponse struct {
-	JobID       string `json:"job_id"`
-	ExecutionID string `json:"execution_id"`
+	JobID string `json:"job_id"`
 }
 
 // JobStatusResponse is the response body for job status queries.

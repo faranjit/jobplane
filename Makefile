@@ -1,3 +1,9 @@
+# Load environment variables from .env file if it exists
+ifneq (,$(wildcard ./.env))
+    include .env
+    export
+endif
+
 .PHONY: build-all build-controller build-worker build-cli run-dev migrate clean
 
 # Build all binaries
@@ -14,8 +20,12 @@ build-cli:
 
 # Run development servers
 run-dev:
-	@echo "Starting controller and worker in development mode..."
-	@echo "TODO: Use docker-compose or process manager"
+	@echo "Starting DB..."
+	docker-compose up -d
+	@echo "Waiting for DB..."
+	@sleep 2
+	@echo "Starting Controller..."
+	go run cmd/controller/main.go
 
 # Run database migrations
 migrate:

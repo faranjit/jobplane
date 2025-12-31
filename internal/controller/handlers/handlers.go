@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"jobplane/internal/store"
 	"net/http"
@@ -11,7 +10,7 @@ import (
 
 // StoreFactory combines the interfaces needed for the controller to function.
 type StoreFactory interface {
-	BeginTx(ctx context.Context) (*sql.Tx, error)
+	BeginTx(ctx context.Context) (store.Tx, error)
 	store.JobStore
 	store.TenantStore
 	store.Queue

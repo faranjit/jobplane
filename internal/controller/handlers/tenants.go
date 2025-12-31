@@ -20,7 +20,7 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 	var req api.CreateTenantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.httpError(w, "Invalid JSON", http.StatusBadRequest)
+		h.httpError(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -41,7 +41,8 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.CreateTenant(ctx, tenant, hashedKey); err != nil {
-		h.httpError(w, "Failed to create execution", http.StatusInternalServerError)
+		h.httpError(w, "Failed to create tenant", http.StatusInternalServerError)
+		return
 	}
 
 	// Return the Raw Key (This is the only time the user sees it)

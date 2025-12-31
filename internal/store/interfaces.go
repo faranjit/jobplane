@@ -15,6 +15,12 @@ type DBTransaction interface {
 	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
 }
 
+type Tx interface {
+	DBTransaction
+	Commit() error
+	Rollback() error
+}
+
 // TenantStore handles retrieving tenant information for authentication.
 type TenantStore interface {
 	// CreateTenant inserts a new tenant to the database

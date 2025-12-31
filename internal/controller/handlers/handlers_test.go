@@ -1,0 +1,105 @@
+package handlers
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"jobplane/internal/store"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Mock transaction
+type mockTx struct{}
+
+func (m *mockTx) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return nil, nil
+}
+func (m *mockTx) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return nil, nil
+}
+func (m *mockTx) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return nil
+}
+
+func (m *mockTx) Commit() error { return nil }
+
+func (m *mockTx) Rollback() error { return nil }
+
+// Mock Store
+type mockStore struct {
+	// Job Hooks
+	beginTxErr     error
+	createJobErr   error
+	getJobByIDErr  error
+	getJobByIDResp *store.Job
+	createExecErr  error
+	enqueueErr     error
+
+	// Tenant Hooks
+	createTenantErr error
+
+	// Execution Hooks
+	getExecutionResp *store.Execution
+	getExecutionErr  error
+	setVisibleErr    error
+	completeErr      error
+	failErr          error
+}
+
+func (m *mockStore) BeginTx(ctx context.Context) (store.Tx, error) {
+	if m.beginTxErr != nil {
+		return nil, m.beginTxErr
+	}
+	return &mockTx{}, nil
+}
+
+func (m *mockStore) CreateJob(ctx context.Context, tx store.DBTransaction, job *store.Job) error {
+	return m.createJobErr
+}
+
+func (m *mockStore) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error) {
+	return m.getJobByIDResp, m.getJobByIDErr
+}
+
+func (m *mockStore) CreateExecution(ctx context.Context, tx store.DBTransaction, execution *store.Execution) error {
+	return m.createExecErr
+}
+
+func (m *mockStore) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error) {
+	return 1, m.enqueueErr
+}
+
+func (m *mockStore) CreateTenant(ctx context.Context, tenant *store.Tenant, hashedKey string) error {
+	// Simulate DB error if configured
+	return m.createTenantErr
+}
+
+func (m *mockStore) GetTenantByID(ctx context.Context, id uuid.UUID) (*store.Tenant, error) {
+	return nil, nil // Not used in handlers yet
+}
+
+func (m *mockStore) GetTenantByAPIKeyHash(ctx context.Context, hash string) (*store.Tenant, error) {
+	return nil, nil // Handled by Auth Middleware, not Handlers
+}
+
+func (m *mockStore) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
+	return uuid.Nil, nil, nil
+}
+
+func (m *mockStore) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {
+	return m.getExecutionResp, m.getExecutionErr
+}
+
+func (m *mockStore) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {
+	return m.setVisibleErr
+}
+
+func (m *mockStore) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int) error {
+	return m.completeErr
+}
+
+func (m *mockStore) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, errMsg string) error {
+	return m.failErr
+}
