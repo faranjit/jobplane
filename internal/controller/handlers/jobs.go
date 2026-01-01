@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
 	"jobplane/pkg/api"
@@ -91,7 +90,6 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := h.store.GetJobByID(ctx, jobID)
-	fmt.Printf("%v", job)
 	if err != nil || job.TenantID != tenantID {
 		h.httpError(w, "Related job not found", http.StatusNotFound)
 		return

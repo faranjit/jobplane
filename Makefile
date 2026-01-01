@@ -27,6 +27,11 @@ run-dev:
 	@echo "Starting Controller..."
 	go run cmd/controller/main.go
 
+# Run Worker
+run-worker:
+	@echo "Starting Worker..."
+	go run cmd/worker/main.go
+
 # Run database migrations
 migrate:
 	@echo "Running migrations..."

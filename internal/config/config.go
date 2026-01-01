@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds all configuration values for the application.
@@ -17,6 +18,9 @@ type Config struct {
 
 	// Worker-specific configuration
 	WorkerConcurrency int
+
+	// Worker Poll Interval
+	WorkerPollInterval time.Duration
 }
 
 // Load reads configuration from environment variables.
@@ -36,8 +40,9 @@ func Load() (*Config, error) {
 		port = p
 	}
 
+	// Worker Concurrency
 	concurrencyStr := os.Getenv("WORKER_CONCURRENCY")
-	concurrency := 5 // Default
+	concurrency := 1 // Default
 	if concurrencyStr != "" {
 		c, err := strconv.Atoi(concurrencyStr)
 		if err != nil {
@@ -46,9 +51,21 @@ func Load() (*Config, error) {
 		concurrency = c
 	}
 
+	// Worker Poll Interval
+	pollIntervalStr := os.Getenv("WORKER_POLL_INTERVAL")
+	pollInterval := 1 * time.Second // Default
+	if pollIntervalStr != "" {
+		pi, err := time.ParseDuration(pollIntervalStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WORKER_POLL_INTERVAL: %w", err)
+		}
+		pollInterval = pi
+	}
+
 	return &Config{
-		DatabaseURL:       dbUrl,
-		HTTPPort:          port,
-		WorkerConcurrency: concurrency,
+		DatabaseURL:        dbUrl,
+		HTTPPort:           port,
+		WorkerConcurrency:  concurrency,
+		WorkerPollInterval: pollInterval,
 	}, nil
 }
