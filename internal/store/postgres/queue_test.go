@@ -87,7 +87,7 @@ func TestDequeue_Success(t *testing.T) {
 
 	// UPDATE executions status
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs(executionID).
+		WithArgs("RUNNING", executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectCommit()
@@ -148,7 +148,7 @@ func TestDequeue_WithTenantFilter(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs(executionID).
+		WithArgs("RUNNING", executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectCommit()
@@ -176,7 +176,7 @@ func TestComplete_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs(exitCode, executionID).
+		WithArgs("SUCCEEDED", exitCode, executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err := store.Complete(ctx, nil, executionID, exitCode)
@@ -208,7 +208,7 @@ func TestFail_WithRetry(t *testing.T) {
 		WithArgs(expectedBackoff.Seconds(), executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := store.Fail(ctx, nil, executionID, "temporary error")
+	err := store.Fail(ctx, nil, executionID, nil, "temporary error")
 	if err != nil {
 		t.Fatalf("Fail with retry failed: %v", err)
 	}
@@ -236,11 +236,12 @@ func TestFail_PermanentFailure(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	exitCode := -1
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs(errMsg, executionID).
+		WithArgs("FAILED", exitCode, errMsg, executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := store.Fail(ctx, nil, executionID, errMsg)
+	err := store.Fail(ctx, nil, executionID, &exitCode, errMsg)
 	if err != nil {
 		t.Fatalf("Fail permanent failed: %v", err)
 	}
@@ -268,11 +269,12 @@ func TestFail_JobNotInQueue(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
+	exitCode := 61
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs(errMsg, executionID).
+		WithArgs("FAILED", exitCode, errMsg, executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := store.Fail(ctx, nil, executionID, errMsg)
+	err := store.Fail(ctx, nil, executionID, &exitCode, errMsg)
 	if err != nil {
 		t.Fatalf("Fail job not in queue failed: %v", err)
 	}

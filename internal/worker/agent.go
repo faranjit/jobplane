@@ -106,7 +106,7 @@ func (a *Agent) processOne(ctx context.Context) {
 	var jobDef store.Job
 	if err := json.Unmarshal(payload, &jobDef); err != nil {
 		log.Printf("Failed to unmarshal job payload: %v", err)
-		a.queue.Fail(ctx, nil, execID, fmt.Sprintf("Invalid payload: %v", err))
+		a.queue.Fail(ctx, nil, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
 		return
 	}
 
@@ -136,7 +136,7 @@ func (a *Agent) processOne(ctx context.Context) {
 	handle, err := a.runtime.Start(execContext, runtimeOpts)
 	if err != nil {
 		log.Printf("Failed to start runtime for %s: %v", execID, err)
-		a.queue.Fail(context.Background(), nil, execID, "Failed to start runtime")
+		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
 		return
 	}
 
@@ -150,11 +150,11 @@ func (a *Agent) processOne(ctx context.Context) {
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer stopCancel()
 			handle.Stop(stopCtx)
-			a.queue.Fail(context.Background(), nil, execID, fmt.Sprintf("Execution timed out after %v", timeout))
+			a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Execution timed out after %v", timeout))
 			return
 		}
 		log.Printf("Runtime waiting error for %s: %v", execID, err)
-		a.queue.Fail(context.Background(), nil, execID, fmt.Sprintf("Runtime waiting error: %v", err))
+		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Runtime waiting error: %v", err))
 		return
 	}
 
@@ -168,6 +168,6 @@ func (a *Agent) processOne(ctx context.Context) {
 		if result.Error != nil {
 			errorMessage = result.Error.Error()
 		}
-		a.queue.Fail(context.Background(), nil, execID, errorMessage)
+		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
 	}
 }

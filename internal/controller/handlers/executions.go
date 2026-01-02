@@ -92,7 +92,7 @@ func (h *Handlers) InternalUpdateResult(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	} else {
-		err := h.store.Fail(ctx, nil, executionID, req.Error)
+		err := h.store.Fail(ctx, nil, executionID, &req.ExitCode, req.Error)
 		if err != nil {
 			h.httpError(w, "Failed to mark failed", http.StatusInternalServerError)
 			return

@@ -37,6 +37,7 @@ type CompleteCall struct {
 
 type FailCall struct {
 	ExecutionID uuid.UUID
+	ExitCode    *int
 	ErrMsg      string
 }
 
@@ -58,10 +59,10 @@ func (m *MockQueue) Complete(ctx context.Context, tx store.DBTransaction, execut
 	return nil
 }
 
-func (m *MockQueue) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, errMsg string) error {
+func (m *MockQueue) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode *int, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.FailCalls = append(m.FailCalls, FailCall{ExecutionID: executionID, ErrMsg: errMsg})
+	m.FailCalls = append(m.FailCalls, FailCall{ExecutionID: executionID, ExitCode: exitCode, ErrMsg: errMsg})
 	return nil
 }
 
@@ -555,6 +556,15 @@ func TestProcessOne_FailedWithError(t *testing.T) {
 	}
 	if queue.FailCalls[0].ErrMsg != "OOMKilled" {
 		t.Errorf("expected 'OOMKilled', got '%s'", queue.FailCalls[0].ErrMsg)
+	}
+	expectedExitCode := 137
+	if queue.FailCalls[0].ExitCode == nil {
+		t.Errorf("expected exitCode to be %d, but got nil", expectedExitCode)
+	} else {
+		gotCode := *queue.FailCalls[0].ExitCode
+		if gotCode != expectedExitCode {
+			t.Errorf("expected exitCode %d, got %d", expectedExitCode, gotCode)
+		}
 	}
 }
 

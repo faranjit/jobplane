@@ -100,6 +100,6 @@ func (m *mockStore) Complete(ctx context.Context, tx store.DBTransaction, execut
 	return m.completeErr
 }
 
-func (m *mockStore) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, errMsg string) error {
+func (m *mockStore) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode *int, errMsg string) error {
 	return m.failErr
 }

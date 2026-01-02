@@ -97,9 +97,9 @@ func (s *Store) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, 
 	// Update History Status
 	_, err = tx.ExecContext(ctx, `
 		UPDATE executions 
-		SET status = 'RUNNING', started_at = NOW() 
-		WHERE id = $1
-	`, executionID)
+		SET status = $1, started_at = NOW() 
+		WHERE id = $2
+	`, store.ExecutionStatusRunning, executionID)
 	if err != nil {
 		return uuid.Nil, nil, fmt.Errorf("failed to mark running: %w", err)
 	}
@@ -124,15 +124,15 @@ func (s *Store) Complete(ctx context.Context, tx store.DBTransaction, executionI
 	// Update History
 	_, err = executor.ExecContext(ctx, `
 		UPDATE executions 
-		SET status = 'SUCCEEDED', exit_code = $1, finished_at = NOW() 
-		WHERE id = $2
-	`, exitCode, executionID)
+		SET status = $1, exit_code = $2, finished_at = NOW() 
+		WHERE id = $3
+	`, store.ExecutionStatusCompleted, exitCode, executionID)
 
 	return err
 }
 
 // Fail handles a failed job execution with retries.
-func (s *Store) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, errMsg string) error {
+func (s *Store) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode *int, errMsg string) error {
 	executor := s.getExecutor(tx)
 
 	// Check current attempts
@@ -171,9 +171,9 @@ func (s *Store) Fail(ctx context.Context, tx store.DBTransaction, executionID uu
 
 	_, err = executor.ExecContext(ctx, `
 		UPDATE executions 
-		SET status = 'FAILED', error_message = $1, finished_at = NOW() 
-		WHERE id = $2
-	`, errMsg, executionID)
+		SET status = $1, exit_code = $2, error_message = $3, finished_at = NOW() 
+		WHERE id = $4
+	`, store.ExecutionStatusFailed, exitCode, errMsg, executionID)
 	return err
 }
 

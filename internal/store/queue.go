@@ -25,7 +25,7 @@ type Queue interface {
 
 	// Fail marks execution as FAILED.
 	// If retries are exhausted, it saves the errMsg.
-	Fail(ctx context.Context, tx DBTransaction, executionID uuid.UUID, errMsg string) error
+	Fail(ctx context.Context, tx DBTransaction, executionID uuid.UUID, exitCode *int, errMsg string) error
 
 	// SetVisibleAfter extends the visibility timeout (heartbeat).
 	SetVisibleAfter(ctx context.Context, tx DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error
