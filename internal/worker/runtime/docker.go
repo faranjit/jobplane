@@ -62,6 +62,7 @@ func (d *DockerRuntime) Start(ctx context.Context, opts StartOptions) (Handle, e
 		Image: opts.Image,
 		Cmd:   opts.Command,
 		Env:   envVars,
+		Tty:   true,
 	}
 	containerResponse, err := d.client.ContainerCreate(ctx, containerConfig, nil, nil, nil, "")
 	if err != nil {

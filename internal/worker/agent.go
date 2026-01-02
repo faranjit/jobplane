@@ -2,33 +2,40 @@
 package worker
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"jobplane/internal/store"
 	"jobplane/internal/worker/runtime"
+	"jobplane/pkg/api"
 
 	"github.com/google/uuid"
 )
 
 // AgentConfig holds configuration for the worker agent.
 type AgentConfig struct {
-	ID           string
-	Concurrency  int
-	PollInterval time.Duration
+	ID            string
+	Concurrency   int
+	PollInterval  time.Duration
+	ControllerURL string
 }
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
 type Agent struct {
-	queue     store.Queue
-	runtime   runtime.Runtime
-	config    AgentConfig
-	tenantIDs []uuid.UUID
-	done      chan struct{}
+	queue      store.Queue
+	runtime    runtime.Runtime
+	config     AgentConfig
+	tenantIDs  []uuid.UUID
+	httpClient *http.Client
+	done       chan struct{}
 }
 
 // New creates a new worker agent.
@@ -42,12 +49,20 @@ func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid
 		config.PollInterval = 1 * time.Second
 	}
 
+	// Ensure no trailing slash
+	if len(config.ControllerURL) > 0 && config.ControllerURL[len(config.ControllerURL)-1] == '/' {
+		config.ControllerURL = config.ControllerURL[:len(config.ControllerURL)-1]
+	}
+
 	return &Agent{
 		queue:     q,
 		runtime:   rt,
 		config:    config,
 		tenantIDs: tenantIDs,
 		done:      make(chan struct{}),
+		httpClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
 	}
 }
 
@@ -140,8 +155,22 @@ func (a *Agent) processOne(ctx context.Context) {
 		return
 	}
 
+	// Using WaitGroup to track logs
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// streaming logs
+	go func() {
+		defer wg.Done()
+		a.streamLogs(ctx, execID, handle)
+	}()
+
 	// Wait for result
 	result, err := handle.Wait(execContext)
+
+	// Wait for logs
+	wg.Wait()
+
 	if err != nil {
 		// Check if this was a timeout
 		if execContext.Err() == context.DeadlineExceeded {
@@ -170,4 +199,60 @@ func (a *Agent) processOne(ctx context.Context) {
 		}
 		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
 	}
+}
+
+func (a *Agent) streamLogs(ctx context.Context, executionID uuid.UUID, handle runtime.Handle) {
+	rc, err := handle.StreamLogs(ctx)
+	if err != nil {
+		log.Printf("Failed to get log stream for %s: %v", executionID, err)
+		return
+	}
+	defer rc.Close()
+
+	scanner := bufio.NewScanner(rc)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Sanitize null bytes (Postgres rejects \x00)
+		if strings.Contains(line, "\x00") {
+			line = strings.ReplaceAll(line, "\x00", "")
+		}
+
+		// This is chatty (one request per line). Optimization is a future task.
+		if err := a.sendLogs(ctx, executionID, line); err != nil {
+			log.Printf("Failed to ship log for %s: %v", executionID, err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if err != context.Canceled && err != context.DeadlineExceeded {
+			log.Printf("Log stream error for %s: %v", executionID, err)
+		}
+	}
+}
+
+func (a *Agent) sendLogs(ctx context.Context, executionID uuid.UUID, content string) error {
+	url := fmt.Sprintf("%s/internal/executions/%s/logs", a.config.ControllerURL, executionID)
+
+	body := api.AddLogRequest{
+		Content: content,
+	}
+	reqBody, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBufferString(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }

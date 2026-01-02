@@ -103,7 +103,7 @@ func (m *MockHandle) Stop(ctx context.Context) error {
 }
 
 func (m *MockHandle) StreamLogs(ctx context.Context) (io.ReadCloser, error) {
-	return nil, nil
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 // Test: New() Function

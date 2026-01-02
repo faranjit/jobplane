@@ -56,3 +56,20 @@ type ErrorResponse struct {
 	Code    string `json:"code,omitempty"`
 	Details string `json:"details,omitempty"`
 }
+
+// AddLogRequest is the payload sent by the Worker.
+type AddLogRequest struct {
+	Content string `json:"content"`
+}
+
+// LogEntry represents a single log line in the response.
+type LogEntry struct {
+	ID        int64     `json:"id"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// GetLogsResponse is the response body for fetching logs.
+type GetLogsResponse struct {
+	Logs []LogEntry `json:"logs"`
+}

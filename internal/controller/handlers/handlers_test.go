@@ -46,6 +46,15 @@ type mockStore struct {
 	setVisibleErr    error
 	completeErr      error
 	failErr          error
+
+	// Log Hooks
+	addLogEntryErr       error
+	getExecutionLogsResp []store.LogEntry
+	getExecutionLogsErr  error
+
+	// Spies (to verify arguments passed by handlers)
+	capturedAfterID int64
+	capturedLimit   int
 }
 
 func (m *mockStore) BeginTx(ctx context.Context) (store.Tx, error) {
@@ -90,6 +99,16 @@ func (m *mockStore) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UU
 
 func (m *mockStore) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {
 	return m.getExecutionResp, m.getExecutionErr
+}
+
+func (m *mockStore) AddLogEntry(ctx context.Context, executionID uuid.UUID, content string) error {
+	return m.addLogEntryErr
+}
+
+func (m *mockStore) GetExecutionLogs(ctx context.Context, executionID uuid.UUID, afterID int64, limit int) ([]store.LogEntry, error) {
+	m.capturedAfterID = afterID
+	m.capturedLimit = limit
+	return m.getExecutionLogsResp, m.getExecutionLogsErr
 }
 
 func (m *mockStore) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {

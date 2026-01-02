@@ -27,12 +27,14 @@ func New(addr string, store handlers.StoreFactory) *Server {
 	mux.Handle("POST /jobs", authMW(http.HandlerFunc(h.CreateJob)))
 	mux.Handle("POST /jobs/{id}/run", authMW(http.HandlerFunc(h.RunJob)))
 	mux.Handle("GET /executions/{id}", authMW(http.HandlerFunc(h.GetExecution)))
+	mux.Handle("GET /executions/{id}/logs", authMW(http.HandlerFunc(h.GetExecutionLogs)))
 
 	// Internal endpoints
 	// These are called by the Worker Agent.
 	// these should run on a separate port or strict network rules.
 	mux.HandleFunc("PUT /internal/executions/{id}/heartbeat", h.InternalHeartbeat)
 	mux.HandleFunc("PUT /internal/executions/{id}/result", h.InternalUpdateResult)
+	mux.HandleFunc("POST /internal/executions/{id}/logs", h.InternalAddLogs)
 
 	return &Server{
 		httpServer: &http.Server{

@@ -36,8 +36,9 @@ func main() {
 	}
 
 	agent := worker.New(store, docker, worker.AgentConfig{
-		Concurrency:  cfg.WorkerConcurrency,
-		PollInterval: cfg.WorkerPollInterval,
+		Concurrency:   cfg.WorkerConcurrency,
+		PollInterval:  cfg.WorkerPollInterval,
+		ControllerURL: cfg.ControllerURL,
 	}, nil)
 
 	log.Printf("Worker started with concurrency %d", cfg.WorkerConcurrency)

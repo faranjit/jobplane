@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"jobplane/internal/store"
+	"jobplane/pkg/api"
 	"net/http"
+	"strconv"
 )
 
 // StoreFactory combines the interfaces needed for the controller to function.
@@ -37,5 +39,8 @@ func (h *Handlers) respondJson(w http.ResponseWriter, status int, payload interf
 
 // A helper function to return consistent error messages.
 func (h *Handlers) httpError(w http.ResponseWriter, message string, code int) {
-	h.respondJson(w, code, map[string]string{"error": message})
+	h.respondJson(w, code, api.ErrorResponse{
+		Error: message,
+		Code:  strconv.Itoa(code),
+	})
 }

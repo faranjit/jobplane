@@ -41,6 +41,13 @@ type Execution struct {
 	CompletedAt  *time.Time
 }
 
+type LogEntry struct {
+	ID          int64
+	ExecutionID uuid.UUID
+	Content     string
+	CreatedAt   time.Time
+}
+
 // ExecutionStatus represents the state of an execution.
 type ExecutionStatus string
 

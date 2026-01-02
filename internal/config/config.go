@@ -21,6 +21,9 @@ type Config struct {
 
 	// Worker Poll Interval
 	WorkerPollInterval time.Duration
+
+	// URL of the Control Plane (e.g., "http://localhost:8080")
+	ControllerURL string
 }
 
 // Load reads configuration from environment variables.
@@ -62,10 +65,16 @@ func Load() (*Config, error) {
 		pollInterval = pi
 	}
 
+	controllerURL := os.Getenv("CONTROLLER_URL")
+	if controllerURL == "" {
+		controllerURL = "http://localhost:6161"
+	}
+
 	return &Config{
 		DatabaseURL:        dbUrl,
 		HTTPPort:           port,
 		WorkerConcurrency:  concurrency,
 		WorkerPollInterval: pollInterval,
+		ControllerURL:      controllerURL,
 	}, nil
 }

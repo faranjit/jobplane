@@ -44,6 +44,17 @@ CREATE TABLE execution_queue (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- 5. ExecutionLogs
+CREATE TABLE execution_logs (
+    id BIGSERIAL PRIMARY KEY,
+    execution_id UUID REFERENCES executions(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Index for the Worker's "Dequeue" query
 CREATE INDEX idx_queue_poll ON execution_queue (tenant_id, visible_after) 
 WHERE execution_id IS NOT NULL;
+
+-- Index by execution time
+CREATE INDEX idx_logs_execution_time ON execution_logs (execution_id, created_at);

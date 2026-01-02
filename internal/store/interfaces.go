@@ -46,4 +46,10 @@ type JobStore interface {
 
 	// GetExecutionByID returns an execution by its ID.
 	GetExecutionByID(ctx context.Context, id uuid.UUID) (*Execution, error)
+
+	// AddLogEntry inserts a chunk of logs for an execution.
+	AddLogEntry(ctx context.Context, executionID uuid.UUID, content string) error
+
+	// GetExecutionLogs retrieves all logs for an execution, ordered by time.
+	GetExecutionLogs(ctx context.Context, executionID uuid.UUID, afterID int64, limit int) ([]LogEntry, error)
 }
