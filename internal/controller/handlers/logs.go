@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"jobplane/internal/controller/middleware"
 	"jobplane/pkg/api"
 	"net/http"
@@ -51,7 +50,6 @@ func (h *Handlers) GetExecutionLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID, ok := middleware.TenantIDFromContext(ctx)
-	fmt.Printf("tenant id from request: %s \n", tenantID)
 	if !ok {
 		h.httpError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -78,7 +76,6 @@ func (h *Handlers) GetExecutionLogs(w http.ResponseWriter, r *http.Request) {
 		h.httpError(w, "Execution not found", http.StatusNotFound)
 		return
 	}
-	fmt.Printf("tenant id from execution: %s \n", execution.TenantID)
 
 	logs, err := h.store.GetExecutionLogs(ctx, executionID, afterID, limit)
 	if err != nil {

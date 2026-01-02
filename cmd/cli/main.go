@@ -2,6 +2,13 @@
 // The CLI is the developer terminal tool for interacting with the jobplane API.
 package main
 
+import (
+	"jobplane/cmd/cli/cmd"
+	"os"
+)
+
 func main() {
-	// TODO: Parse commands and interact with controller API
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
