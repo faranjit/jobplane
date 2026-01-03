@@ -26,6 +26,7 @@ CREATE TABLE executions (
     job_id UUID REFERENCES jobs(id),
     tenant_id UUID REFERENCES tenants(id),
     status TEXT CHECK (status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')),
+    attempt INT DEFAULT 0,
     exit_code INT,
     error_message TEXT,
     created_at TIMESTAMP DEFAULT NOW(),

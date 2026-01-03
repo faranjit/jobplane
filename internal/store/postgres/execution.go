@@ -14,7 +14,7 @@ func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Exec
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&execution.ID, &execution.JobID, &execution.TenantID,
-		&execution.Status, &execution.ExitCode, &execution.ErrorMessage,
+		&execution.Status, &execution.Attempt, &execution.ExitCode, &execution.ErrorMessage,
 		&execution.CreatedAt, &execution.StartedAt, &execution.CompletedAt,
 	)
 	if err != nil {

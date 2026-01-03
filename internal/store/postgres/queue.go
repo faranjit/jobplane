@@ -94,10 +94,11 @@ func (s *Store) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, 
 		return uuid.Nil, nil, fmt.Errorf("failed to update visibility: %w", err)
 	}
 
-	// Update History Status
+	// Update History Status and increment attempt
+	// Only set started_at on first attempt (preserve original start time on retries)
 	_, err = tx.ExecContext(ctx, `
 		UPDATE executions 
-		SET status = $1, started_at = NOW() 
+		SET status = $1, started_at = COALESCE(started_at, NOW()), attempt = attempt + 1
 		WHERE id = $2
 	`, store.ExecutionStatusRunning, executionID)
 	if err != nil {

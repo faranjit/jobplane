@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"jobplane/internal/controller/middleware"
+	"jobplane/pkg/api"
 	"net/http"
 	"time"
 
@@ -33,7 +34,17 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJson(w, http.StatusOK, execution)
+	executionResponse := &api.ExecutionResponse{
+		ID:          execution.ID.String(),
+		Status:      string(execution.Status),
+		Attempt:     execution.Attempt,
+		StartedAt:   execution.StartedAt,
+		CompletedAt: execution.CompletedAt,
+		ExitCode:    execution.ExitCode,
+		Error:       execution.ErrorMessage,
+	}
+
+	h.respondJson(w, http.StatusOK, executionResponse)
 }
 
 // ---------------------------------------------------------
