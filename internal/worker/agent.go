@@ -86,20 +86,39 @@ func (a *Agent) Run(ctx context.Context) error {
 			close(a.done)
 			return ctx.Err()
 		case <-ticker.C:
-			// Try to acquire a slot in the semaphore
-			select {
-			case sem <- struct{}{}:
-				// Slot acquired, fetch and run a job in background
+			// Count available slots
+			availableSlots := a.config.Concurrency - len(sem)
+			if availableSlots <= 0 {
+				continue
+			}
+
+			// Batch dequeue up to available slots
+			items, err := a.queue.DequeueBatch(ctx, a.tenantIDs, availableSlots)
+			if err != nil {
+				// Log only unexpected errors, not empty queue
+				log.Printf("DequeueBatch error: %v", err)
+				continue
+			}
+
+			if len(items) == 0 {
+				continue
+			}
+
+			log.Printf("Claimed %d executions", len(items))
+
+			// Dispatch each job to a worker goroutine
+			for _, item := range items {
+				// Acquire semaphore slot
+				sem <- struct{}{}
+
 				wg.Add(1)
-				go func() {
+				go func(execID uuid.UUID, payload json.RawMessage) {
 					defer wg.Done()
 					defer func() {
 						<-sem
 					}()
-					a.processOne(ctx)
-				}()
-			default:
-				// No available slots, skip this iteration
+					a.processItem(ctx, execID, payload)
+				}(item.ExecutionID, item.Payload)
 			}
 		}
 	}
@@ -110,13 +129,9 @@ func (a *Agent) Done() <-chan struct{} {
 	return a.done
 }
 
-func (a *Agent) processOne(ctx context.Context) {
-	execID, payload, err := a.queue.Dequeue(ctx, a.tenantIDs)
-	if err != nil {
-		return
-	}
-
-	log.Printf("Claimed execution %s", execID)
+// processItem processes a single execution that has already been dequeued.
+func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.RawMessage) {
+	log.Printf("Processing execution %s", execID)
 
 	var jobDef store.Job
 	if err := json.Unmarshal(payload, &jobDef); err != nil {

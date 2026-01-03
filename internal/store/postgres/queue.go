@@ -44,26 +44,26 @@ func (s *Store) Enqueue(ctx context.Context, tx store.DBTransaction, executionID
 	return id, nil
 }
 
-// Dequeue claims the next available job using SELECT ... FOR UPDATE SKIP LOCKED.
-func (s *Store) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-	// Start a transaction solely for the dequeue operation
+// DequeueBatch claims up to 'limit' available jobs atomically using SELECT ... FOR UPDATE SKIP LOCKED.
+// Returns nil slice if no jobs are available.
+func (s *Store) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+
+	// Start a transaction for the batch dequeue operation
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return uuid.Nil, nil, err
+		return nil, err
 	}
 	defer tx.Rollback()
 
-	// Find and Lock the next job
-	var queueID int64
-	var executionID uuid.UUID
-	var payload json.RawMessage
-
-	args := []interface{}{}
+	// Build WHERE clause and args
+	args := []interface{}{limit}
 	whereClause := "WHERE visible_after <= NOW()"
 
-	// Support filtering by specific tenants if provided
 	if len(tenantIDs) > 0 {
-		whereClause += " AND tenant_id = ANY($1)"
+		whereClause += " AND tenant_id = ANY($2)"
 		args = append(args, pq.Array(tenantIDs))
 	}
 
@@ -73,43 +73,64 @@ func (s *Store) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, 
 		%s
 		ORDER BY created_at ASC
 		FOR UPDATE SKIP LOCKED
-		LIMIT 1
+		LIMIT $1
 	`, whereClause)
 
-	err = tx.QueryRowContext(ctx, selectQuery, args...).Scan(&queueID, &executionID, &payload)
+	rows, err := tx.QueryContext(ctx, selectQuery, args...)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return uuid.Nil, nil, err // Empty queue
+		return nil, fmt.Errorf("batch dequeue query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var items []store.QueueItem
+	var queueIDs []int64
+	var execIDs []uuid.UUID
+
+	for rows.Next() {
+		var queueID int64
+		var item store.QueueItem
+		if err := rows.Scan(&queueID, &item.ExecutionID, &item.Payload); err != nil {
+			return nil, fmt.Errorf("batch dequeue scan failed: %w", err)
 		}
-		return uuid.Nil, nil, fmt.Errorf("dequeue scan failed: %w", err)
+		items = append(items, item)
+		queueIDs = append(queueIDs, queueID)
+		execIDs = append(execIDs, item.ExecutionID)
 	}
 
-	// Bump Visibility Timeout (Heartbeat)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("batch dequeue rows error: %w", err)
+	}
+
+	// Empty queue
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	// Bulk update visibility timeout for all claimed jobs
 	_, err = tx.ExecContext(ctx, `
 		UPDATE execution_queue 
 		SET visible_after = NOW() + ($1 * INTERVAL '1 second')
-		WHERE id = $2
-	`, VisibilityTimeout.Seconds(), queueID)
+		WHERE id = ANY($2)
+	`, VisibilityTimeout.Seconds(), pq.Array(queueIDs))
 	if err != nil {
-		return uuid.Nil, nil, fmt.Errorf("failed to update visibility: %w", err)
+		return nil, fmt.Errorf("batch visibility update failed: %w", err)
 	}
 
-	// Update History Status and increment attempt
-	// Only set started_at on first attempt (preserve original start time on retries)
+	// Bulk update execution status to RUNNING
 	_, err = tx.ExecContext(ctx, `
 		UPDATE executions 
 		SET status = $1, started_at = COALESCE(started_at, NOW()), attempt = attempt + 1
-		WHERE id = $2
-	`, store.ExecutionStatusRunning, executionID)
+		WHERE id = ANY($2)
+	`, store.ExecutionStatusRunning, pq.Array(execIDs))
 	if err != nil {
-		return uuid.Nil, nil, fmt.Errorf("failed to mark running: %w", err)
+		return nil, fmt.Errorf("batch status update failed: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return uuid.Nil, nil, err
+		return nil, err
 	}
 
-	return executionID, payload, nil
+	return items, nil
 }
 
 // Complete handles a successful job execution.

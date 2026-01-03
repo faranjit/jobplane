@@ -93,8 +93,8 @@ func (m *mockStore) GetTenantByAPIKeyHash(ctx context.Context, hash string) (*st
 	return nil, nil // Handled by Auth Middleware, not Handlers
 }
 
-func (m *mockStore) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-	return uuid.Nil, nil, nil
+func (m *mockStore) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+	return nil, nil
 }
 
 func (m *mockStore) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {

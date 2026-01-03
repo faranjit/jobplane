@@ -15,10 +15,9 @@ type Queue interface {
 	// Enqueue adds a new execution to the queue.
 	Enqueue(ctx context.Context, tx DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error)
 
-	// Dequeue claims the next available execution.
-	// It updates the row to 'RUNNING' status and sets a visibility timeout.
-	// It does NOT return an AckFunc; the worker must call Complete or Fail.
-	Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error)
+	// DequeueBatch claims up to 'limit' available executions atomically.
+	// Returns nil slice if queue is empty.
+	DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]QueueItem, error)
 
 	// Complete marks execution as SUCCEEDED/COMPLETED and saves the exit code.
 	Complete(ctx context.Context, tx DBTransaction, executionID uuid.UUID, exitCode int) error
@@ -29,4 +28,10 @@ type Queue interface {
 
 	// SetVisibleAfter extends the visibility timeout (heartbeat).
 	SetVisibleAfter(ctx context.Context, tx DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error
+}
+
+// QueueItem represents a dequeued execution from the queue.
+type QueueItem struct {
+	ExecutionID uuid.UUID
+	Payload     json.RawMessage
 }

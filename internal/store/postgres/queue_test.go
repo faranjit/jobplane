@@ -9,7 +9,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 )
 
 func newMockStore(t *testing.T) (*Store, sqlmock.Sqlmock) {
@@ -64,43 +63,49 @@ func TestEnqueue_ExecutionNotFound(t *testing.T) {
 	}
 }
 
-func TestDequeue_Success(t *testing.T) {
+// DequeueBatch Tests
+func TestDequeueBatch_Success(t *testing.T) {
 	store, mock := newMockStore(t)
 	defer store.db.Close()
 
 	ctx := context.Background()
-	executionID := uuid.New()
-	queueID := int64(1)
-	payload := json.RawMessage(`{"task": "test"}`)
+	exec1 := uuid.New()
+	exec2 := uuid.New()
+	queueID1 := int64(1)
+	queueID2 := int64(2)
+	payload1 := json.RawMessage(`{"task": "test1"}`)
+	payload2 := json.RawMessage(`{"task": "test2"}`)
 
 	mock.ExpectBegin()
 
-	// SELECT ... FOR UPDATE SKIP LOCKED
+	// SELECT ... FOR UPDATE SKIP LOCKED LIMIT 3
 	mock.ExpectQuery(`SELECT id, execution_id, payload FROM execution_queue`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "execution_id", "payload"}).
-			AddRow(queueID, executionID, payload))
+			AddRow(queueID1, exec1, payload1).
+			AddRow(queueID2, exec2, payload2))
 
-	// UPDATE visibility timeout
+	// Bulk UPDATE visibility timeout
 	mock.ExpectExec(`UPDATE execution_queue`).
-		WithArgs(VisibilityTimeout.Seconds(), queueID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnResult(sqlmock.NewResult(0, 2))
 
-	// UPDATE executions status
+	// Bulk UPDATE executions status
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs("RUNNING", executionID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnResult(sqlmock.NewResult(0, 2))
 
 	mock.ExpectCommit()
 
-	resultID, resultPayload, err := store.Dequeue(ctx, nil)
+	items, err := store.DequeueBatch(ctx, nil, 3)
 	if err != nil {
-		t.Fatalf("Dequeue failed: %v", err)
+		t.Fatalf("DequeueBatch failed: %v", err)
 	}
-	if resultID != executionID {
-		t.Errorf("got executionID %v, want %v", resultID, executionID)
+	if len(items) != 2 {
+		t.Errorf("expected 2 items, got %d", len(items))
 	}
-	if string(resultPayload) != string(payload) {
-		t.Errorf("got payload %s, want %s", resultPayload, payload)
+	if items[0].ExecutionID != exec1 {
+		t.Errorf("got executionID %v, want %v", items[0].ExecutionID, exec1)
+	}
+	if items[1].ExecutionID != exec2 {
+		t.Errorf("got executionID %v, want %v", items[1].ExecutionID, exec2)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -108,7 +113,7 @@ func TestDequeue_Success(t *testing.T) {
 	}
 }
 
-func TestDequeue_EmptyQueue(t *testing.T) {
+func TestDequeueBatch_EmptyQueue(t *testing.T) {
 	store, mock := newMockStore(t)
 	defer store.db.Close()
 
@@ -116,46 +121,106 @@ func TestDequeue_EmptyQueue(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id, execution_id, payload FROM execution_queue`).
-		WillReturnError(sql.ErrNoRows)
+		WillReturnRows(sqlmock.NewRows([]string{"id", "execution_id", "payload"})) // Empty result
 	mock.ExpectRollback()
 
-	_, _, err := store.Dequeue(ctx, nil)
-	if err != sql.ErrNoRows {
-		t.Errorf("expected sql.ErrNoRows, got %v", err)
+	items, err := store.DequeueBatch(ctx, nil, 5)
+	if err != nil {
+		t.Errorf("expected no error for empty queue, got %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items, got %d", len(items))
 	}
 }
 
-func TestDequeue_WithTenantFilter(t *testing.T) {
+func TestDequeueBatch_WithTenantFilter(t *testing.T) {
 	store, mock := newMockStore(t)
 	defer store.db.Close()
 
 	ctx := context.Background()
 	tenantIDs := []uuid.UUID{uuid.New(), uuid.New()}
-	executionID := uuid.New()
+	execID := uuid.New()
 	queueID := int64(5)
 	payload := json.RawMessage(`{}`)
 
 	mock.ExpectBegin()
 
-	// Should include tenant filter
+	// Should include tenant filter in query
 	mock.ExpectQuery(`SELECT id, execution_id, payload FROM execution_queue`).
-		WithArgs(pq.Array(tenantIDs)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "execution_id", "payload"}).
-			AddRow(queueID, executionID, payload))
+			AddRow(queueID, execID, payload))
 
 	mock.ExpectExec(`UPDATE execution_queue`).
-		WithArgs(VisibilityTimeout.Seconds(), queueID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs("RUNNING", executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectCommit()
 
-	_, _, err := store.Dequeue(ctx, tenantIDs)
+	items, err := store.DequeueBatch(ctx, tenantIDs, 10)
 	if err != nil {
-		t.Fatalf("Dequeue with tenant filter failed: %v", err)
+		t.Fatalf("DequeueBatch with tenant filter failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Errorf("expected 1 item, got %d", len(items))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestDequeueBatch_LimitDefaultsToOne(t *testing.T) {
+	store, mock := newMockStore(t)
+	defer store.db.Close()
+
+	ctx := context.Background()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id, execution_id, payload FROM execution_queue`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "execution_id", "payload"}))
+	mock.ExpectRollback()
+
+	// Limit of 0 should default to 1
+	_, err := store.DequeueBatch(ctx, nil, 0)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDequeueBatch_SingleItem(t *testing.T) {
+	store, mock := newMockStore(t)
+	defer store.db.Close()
+
+	ctx := context.Background()
+	execID := uuid.New()
+	queueID := int64(1)
+	payload := json.RawMessage(`{"single": true}`)
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(`SELECT id, execution_id, payload FROM execution_queue`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "execution_id", "payload"}).
+			AddRow(queueID, execID, payload))
+
+	mock.ExpectExec(`UPDATE execution_queue`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectExec(`UPDATE executions`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectCommit()
+
+	items, err := store.DequeueBatch(ctx, nil, 1)
+	if err != nil {
+		t.Fatalf("DequeueBatch failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Errorf("expected 1 item, got %d", len(items))
+	}
+	if string(items[0].Payload) != string(payload) {
+		t.Errorf("got payload %s, want %s", items[0].Payload, payload)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

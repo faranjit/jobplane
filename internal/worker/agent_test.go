@@ -22,8 +22,8 @@ import (
 type MockQueue struct {
 	mu sync.Mutex
 
-	// DequeueFunc allows customizing Dequeue behavior per test.
-	DequeueFunc func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error)
+	// DequeueBatchFunc allows customizing DequeueBatch behavior per test.
+	DequeueBatchFunc func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error)
 
 	// Track method calls
 	CompleteCalls []CompleteCall
@@ -45,11 +45,11 @@ func (m *MockQueue) Enqueue(ctx context.Context, tx store.DBTransaction, executi
 	return 0, nil
 }
 
-func (m *MockQueue) Dequeue(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-	if m.DequeueFunc != nil {
-		return m.DequeueFunc(ctx, tenantIDs)
+func (m *MockQueue) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+	if m.DequeueBatchFunc != nil {
+		return m.DequeueBatchFunc(ctx, tenantIDs, limit)
 	}
-	return uuid.Nil, nil, errors.New("no job available")
+	return nil, nil
 }
 
 func (m *MockQueue) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int) error {
@@ -182,8 +182,8 @@ func TestNew_DoneChannelInitialized(t *testing.T) {
 // Test: Run() Loop Behavior
 func TestRun_GracefulShutdown(t *testing.T) {
 	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return uuid.Nil, nil, errors.New("no job")
+		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+			return nil, nil // Empty queue
 		},
 	}
 
@@ -214,8 +214,8 @@ func TestRun_GracefulShutdown(t *testing.T) {
 
 func TestRun_DoneChannelClosed(t *testing.T) {
 	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return uuid.Nil, nil, errors.New("no job")
+		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+			return nil, nil // Empty queue
 		},
 	}
 
@@ -242,12 +242,16 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 	var mu sync.Mutex
 
 	jobID := uuid.New()
-	execID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo"}})
 
 	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
+		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+			// Return 'limit' jobs
+			items := make([]store.QueueItem, limit)
+			for i := 0; i < limit; i++ {
+				items[i] = store.QueueItem{ExecutionID: uuid.New(), Payload: payload}
+			}
+			return items, nil
 		},
 	}
 
@@ -306,12 +310,12 @@ func TestRun_GracefulDrainInFlight(t *testing.T) {
 
 	dequeueCount := 0
 	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
+		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
 			dequeueCount++
 			if dequeueCount == 1 {
-				return execID, payload, nil
+				return []store.QueueItem{{ExecutionID: execID, Payload: payload}}, nil
 			}
-			return uuid.Nil, nil, errors.New("no more jobs")
+			return nil, nil // No more jobs
 		},
 	}
 
@@ -351,32 +355,15 @@ func TestRun_GracefulDrainInFlight(t *testing.T) {
 	}
 }
 
-// Test: processOne() - Job Processing
-func TestProcessOne_NoJob(t *testing.T) {
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return uuid.Nil, nil, errors.New("no job available")
-		},
-	}
-
-	agent := New(queue, &MockRuntime{}, AgentConfig{}, nil)
-	agent.processOne(context.Background())
-
-	if len(queue.CompleteCalls) != 0 || len(queue.FailCalls) != 0 {
-		t.Error("expected no calls to Complete or Fail when no job available")
-	}
-}
-
-func TestProcessOne_InvalidPayload(t *testing.T) {
+// Test: processItem() - Job Processing
+func TestProcessItem_InvalidPayload(t *testing.T) {
 	execID := uuid.New()
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, json.RawMessage(`{invalid json`), nil
-		},
-	}
+	invalidPayload := json.RawMessage(`{invalid json`)
+
+	queue := &MockQueue{}
 
 	agent := New(queue, &MockRuntime{}, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, invalidPayload)
 
 	if len(queue.FailCalls) != 1 {
 		t.Fatalf("expected 1 Fail call, got %d", len(queue.FailCalls))
@@ -386,16 +373,12 @@ func TestProcessOne_InvalidPayload(t *testing.T) {
 	}
 }
 
-func TestProcessOne_RuntimeStartError(t *testing.T) {
+func TestProcessItem_RuntimeStartError(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo"}})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -404,7 +387,7 @@ func TestProcessOne_RuntimeStartError(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
 		t.Fatalf("expected 1 Fail call, got %d", len(queue.FailCalls))
@@ -414,16 +397,12 @@ func TestProcessOne_RuntimeStartError(t *testing.T) {
 	}
 }
 
-func TestProcessOne_WaitError(t *testing.T) {
+func TestProcessItem_WaitError(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo"}})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -436,23 +415,19 @@ func TestProcessOne_WaitError(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
 		t.Fatalf("expected 1 Fail call, got %d", len(queue.FailCalls))
 	}
 }
 
-func TestProcessOne_Success(t *testing.T) {
+func TestProcessItem_Success(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo", "hello"}})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -479,7 +454,7 @@ func TestProcessOne_Success(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.CompleteCalls) != 1 {
 		t.Fatalf("expected 1 Complete call, got %d", len(queue.CompleteCalls))
@@ -492,16 +467,12 @@ func TestProcessOne_Success(t *testing.T) {
 	}
 }
 
-func TestProcessOne_FailedExitCode(t *testing.T) {
+func TestProcessItem_FailedExitCode(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"exit", "1"}})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -514,7 +485,7 @@ func TestProcessOne_FailedExitCode(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
 		t.Fatalf("expected 1 Fail call, got %d", len(queue.FailCalls))
@@ -524,16 +495,12 @@ func TestProcessOne_FailedExitCode(t *testing.T) {
 	}
 }
 
-func TestProcessOne_FailedWithError(t *testing.T) {
+func TestProcessItem_FailedWithError(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"crash"}})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -549,7 +516,7 @@ func TestProcessOne_FailedWithError(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
 		t.Fatalf("expected 1 Fail call, got %d", len(queue.FailCalls))
@@ -568,50 +535,8 @@ func TestProcessOne_FailedWithError(t *testing.T) {
 	}
 }
 
-// Test: Edge Cases
-func TestProcessOne_EmptyTenantIDs(t *testing.T) {
-	var capturedTenantIDs []uuid.UUID
-
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			capturedTenantIDs = tenantIDs
-			return uuid.Nil, nil, errors.New("no job")
-		},
-	}
-
-	agent := New(queue, &MockRuntime{}, AgentConfig{}, nil)
-	agent.processOne(context.Background())
-
-	if capturedTenantIDs != nil {
-		t.Error("expected nil tenantIDs to be passed through")
-	}
-}
-
-func TestProcessOne_SpecificTenantIDs(t *testing.T) {
-	var capturedTenantIDs []uuid.UUID
-	tenantID1 := uuid.New()
-	tenantID2 := uuid.New()
-
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			capturedTenantIDs = tenantIDs
-			return uuid.Nil, nil, errors.New("no job")
-		},
-	}
-
-	agent := New(queue, &MockRuntime{}, AgentConfig{}, []uuid.UUID{tenantID1, tenantID2})
-	agent.processOne(context.Background())
-
-	if len(capturedTenantIDs) != 2 {
-		t.Fatalf("expected 2 tenant IDs, got %d", len(capturedTenantIDs))
-	}
-	if capturedTenantIDs[0] != tenantID1 || capturedTenantIDs[1] != tenantID2 {
-		t.Error("tenant IDs not passed correctly")
-	}
-}
-
 // Test: Timeout Enforcement
-func TestProcessOne_Timeout(t *testing.T) {
+func TestProcessItem_Timeout(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	// Job with 1 second timeout
@@ -622,11 +547,7 @@ func TestProcessOne_Timeout(t *testing.T) {
 		DefaultTimeout: 1, // 1 second timeout
 	})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	var stopCalled int32
 
@@ -649,7 +570,7 @@ func TestProcessOne_Timeout(t *testing.T) {
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
 
 	start := time.Now()
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 	elapsed := time.Since(start)
 
 	// Should complete around 1 second (the timeout)
@@ -674,7 +595,7 @@ func TestProcessOne_Timeout(t *testing.T) {
 	}
 }
 
-func TestProcessOne_TimeoutUsesJobDefault(t *testing.T) {
+func TestProcessItem_TimeoutUsesJobDefault(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	customTimeout := 2 // 2 seconds
@@ -687,11 +608,7 @@ func TestProcessOne_TimeoutUsesJobDefault(t *testing.T) {
 
 	var capturedTimeout int
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -705,14 +622,14 @@ func TestProcessOne_TimeoutUsesJobDefault(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if capturedTimeout != customTimeout {
 		t.Errorf("expected timeout=%d passed to runtime, got %d", customTimeout, capturedTimeout)
 	}
 }
 
-func TestProcessOne_DefaultTimeoutWhenNotSet(t *testing.T) {
+func TestProcessItem_DefaultTimeoutWhenNotSet(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	// Job with NO timeout set (DefaultTimeout = 0)
@@ -722,11 +639,7 @@ func TestProcessOne_DefaultTimeoutWhenNotSet(t *testing.T) {
 		Command: []string{"echo"},
 	})
 
-	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			return execID, payload, nil
-		},
-	}
+	queue := &MockQueue{}
 
 	var contextDeadline time.Time
 	var hasDeadline bool
@@ -743,7 +656,7 @@ func TestProcessOne_DefaultTimeoutWhenNotSet(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{}, nil)
-	agent.processOne(context.Background())
+	agent.processItem(context.Background(), execID, payload)
 
 	if !hasDeadline {
 		t.Error("expected context to have a deadline (default timeout)")
@@ -763,14 +676,23 @@ func TestRun_MultipleConcurrentJobs(t *testing.T) {
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"work"}})
 
-	var dequeueCount int32
+	var totalDequeued int32
 	queue := &MockQueue{
-		DequeueFunc: func(ctx context.Context, tenantIDs []uuid.UUID) (uuid.UUID, json.RawMessage, error) {
-			count := atomic.AddInt32(&dequeueCount, 1)
-			if int(count) <= jobsToProcess {
-				return uuid.New(), payload, nil
+		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
+			remaining := jobsToProcess - int(atomic.LoadInt32(&totalDequeued))
+			if remaining <= 0 {
+				return nil, nil
 			}
-			return uuid.Nil, nil, errors.New("no more jobs")
+			toDequeue := limit
+			if toDequeue > remaining {
+				toDequeue = remaining
+			}
+			atomic.AddInt32(&totalDequeued, int32(toDequeue))
+			items := make([]store.QueueItem, toDequeue)
+			for i := 0; i < toDequeue; i++ {
+				items[i] = store.QueueItem{ExecutionID: uuid.New(), Payload: payload}
+			}
+			return items, nil
 		},
 	}
 
