@@ -26,6 +26,7 @@ type AgentConfig struct {
 	Concurrency   int
 	PollInterval  time.Duration
 	ControllerURL string
+	MaxBackoff    time.Duration // Maximum backoff when queue is empty (default: 30s)
 }
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
@@ -47,6 +48,10 @@ func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid
 
 	if config.PollInterval <= 0 {
 		config.PollInterval = 1 * time.Second
+	}
+
+	if config.MaxBackoff <= 0 {
+		config.MaxBackoff = 30 * time.Second
 	}
 
 	// Ensure no trailing slash
@@ -78,6 +83,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Channel to signal when a slot becomes available (adaptive polling)
 	pollNow := make(chan struct{}, 1)
 
+	// Current backoff duration (increases on empty queue, resets on work found)
+	currentBackoff := a.config.PollInterval
+
 	// Helper to trigger immediate non-blocking re-poll
 	triggerPoll := func() {
 		select {
@@ -90,9 +98,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Initial poll
 	triggerPoll()
 
-	ticker := time.NewTicker(a.config.PollInterval)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -101,8 +106,8 @@ func (a *Agent) Run(ctx context.Context) error {
 			close(a.done)
 			return ctx.Err()
 
-		case <-ticker.C:
-			// Regular interval poll (fallback)
+		case <-time.After(currentBackoff):
+			// Timer-based poll (with backoff)
 			triggerPoll()
 
 		case <-pollNow:
@@ -120,8 +125,16 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			if len(items) == 0 {
+				// Empty queue - increase backoff (exponential, capped at MaxBackoff)
+				currentBackoff = currentBackoff * 2
+				if currentBackoff > a.config.MaxBackoff {
+					currentBackoff = a.config.MaxBackoff
+				}
 				continue
 			}
+
+			// Found work - reset backoff to minimum
+			currentBackoff = a.config.PollInterval
 
 			log.Printf("Claimed %d executions", len(items))
 
