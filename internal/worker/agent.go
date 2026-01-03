@@ -22,11 +22,13 @@ import (
 
 // AgentConfig holds configuration for the worker agent.
 type AgentConfig struct {
-	ID            string
-	Concurrency   int
-	PollInterval  time.Duration
-	ControllerURL string
-	MaxBackoff    time.Duration // Maximum backoff when queue is empty (default: 30s)
+	ID                  string
+	Concurrency         int
+	PollInterval        time.Duration
+	ControllerURL       string
+	MaxBackoff          time.Duration // Maximum backoff when queue is empty (default: 30s)
+	HeartbeatInterval   time.Duration // Interval between heartbeat calls (default: 2m)
+	VisibilityExtension time.Duration // How long to extend visibility on heartbeat (default: 5m)
 }
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
@@ -52,6 +54,14 @@ func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid
 
 	if config.MaxBackoff <= 0 {
 		config.MaxBackoff = 30 * time.Second
+	}
+
+	if config.HeartbeatInterval <= 0 {
+		config.HeartbeatInterval = 2 * time.Minute
+	}
+
+	if config.VisibilityExtension <= 0 {
+		config.VisibilityExtension = 5 * time.Minute
 	}
 
 	// Ensure no trailing slash
@@ -209,6 +219,11 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 		return
 	}
 
+	// Start heartbeat to refresh visibility timeout during execution
+	heartbeatCtx, cancelHeartbeat := context.WithCancel(context.Background())
+	defer cancelHeartbeat()
+	go a.runHeartbeat(heartbeatCtx, execID)
+
 	// Using WaitGroup to track logs
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -252,6 +267,26 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			errorMessage = result.Error.Error()
 		}
 		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
+	}
+}
+
+// runHeartbeat refreshes the visibility timeout periodically while a job is executing.
+// This prevents long-running jobs from being picked up by another worker.
+func (a *Agent) runHeartbeat(ctx context.Context, execID uuid.UUID) {
+	ticker := time.NewTicker(a.config.HeartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Extend visibility timeout
+			visibleAfter := time.Now().Add(a.config.VisibilityExtension)
+			if err := a.queue.SetVisibleAfter(context.Background(), nil, execID, visibleAfter); err != nil {
+				log.Printf("Heartbeat failed for %s: %v", execID, err)
+			}
+		}
 	}
 }
 

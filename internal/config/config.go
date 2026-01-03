@@ -22,6 +22,15 @@ type Config struct {
 	// Worker Poll Interval
 	WorkerPollInterval time.Duration
 
+	// Maximum backoff when queue is empty
+	WorkerMaxBackoff time.Duration
+
+	// Heartbeat interval during job execution
+	WorkerHeartbeatInterval time.Duration
+
+	// How long to extend visibility timeout on each heartbeat
+	WorkerVisibilityExtension time.Duration
+
 	// URL of the Control Plane (e.g., "http://localhost:8080")
 	ControllerURL string
 }
@@ -70,11 +79,47 @@ func Load() (*Config, error) {
 		controllerURL = "http://localhost:6161"
 	}
 
+	// Worker Max Backoff
+	maxBackoffStr := os.Getenv("WORKER_MAX_BACKOFF")
+	maxBackoff := 30 * time.Second // Default
+	if maxBackoffStr != "" {
+		mb, err := time.ParseDuration(maxBackoffStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WORKER_MAX_BACKOFF: %w", err)
+		}
+		maxBackoff = mb
+	}
+
+	// Worker Heartbeat Interval
+	heartbeatIntervalStr := os.Getenv("WORKER_HEARTBEAT_INTERVAL")
+	heartbeatInterval := 2 * time.Minute // Default
+	if heartbeatIntervalStr != "" {
+		hi, err := time.ParseDuration(heartbeatIntervalStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WORKER_HEARTBEAT_INTERVAL: %w", err)
+		}
+		heartbeatInterval = hi
+	}
+
+	// Worker Visibility Extension
+	visibilityExtensionStr := os.Getenv("WORKER_VISIBILITY_EXTENSION")
+	visibilityExtension := 5 * time.Minute // Default
+	if visibilityExtensionStr != "" {
+		ve, err := time.ParseDuration(visibilityExtensionStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WORKER_VISIBILITY_EXTENSION: %w", err)
+		}
+		visibilityExtension = ve
+	}
+
 	return &Config{
-		DatabaseURL:        dbUrl,
-		HTTPPort:           port,
-		WorkerConcurrency:  concurrency,
-		WorkerPollInterval: pollInterval,
-		ControllerURL:      controllerURL,
+		DatabaseURL:               dbUrl,
+		HTTPPort:                  port,
+		WorkerConcurrency:         concurrency,
+		WorkerPollInterval:        pollInterval,
+		WorkerMaxBackoff:          maxBackoff,
+		WorkerHeartbeatInterval:   heartbeatInterval,
+		WorkerVisibilityExtension: visibilityExtension,
+		ControllerURL:             controllerURL,
 	}, nil
 }

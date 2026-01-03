@@ -26,8 +26,9 @@ type MockQueue struct {
 	DequeueBatchFunc func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error)
 
 	// Track method calls
-	CompleteCalls []CompleteCall
-	FailCalls     []FailCall
+	CompleteCalls        []CompleteCall
+	FailCalls            []FailCall
+	SetVisibleAfterCalls []SetVisibleAfterCall
 }
 
 type CompleteCall struct {
@@ -39,6 +40,11 @@ type FailCall struct {
 	ExecutionID uuid.UUID
 	ExitCode    *int
 	ErrMsg      string
+}
+
+type SetVisibleAfterCall struct {
+	ExecutionID  uuid.UUID
+	VisibleAfter time.Time
 }
 
 func (m *MockQueue) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error) {
@@ -67,6 +73,9 @@ func (m *MockQueue) Fail(ctx context.Context, tx store.DBTransaction, executionI
 }
 
 func (m *MockQueue) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.SetVisibleAfterCalls = append(m.SetVisibleAfterCalls, SetVisibleAfterCall{ExecutionID: executionID, VisibleAfter: visibleAfter})
 	return nil
 }
 
@@ -731,5 +740,96 @@ func TestRun_MultipleConcurrentJobs(t *testing.T) {
 
 	if processed := atomic.LoadInt32(&processedJobs); int(processed) < jobsToProcess {
 		t.Errorf("expected at least %d jobs processed, got %d", jobsToProcess, processed)
+	}
+}
+
+// Test: Heartbeat During Execution
+func TestHeartbeat_RefreshesVisibilityDuringLongJob(t *testing.T) {
+	execID := uuid.New()
+	jobID := uuid.New()
+	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"sleep"}})
+
+	queue := &MockQueue{}
+
+	mockRuntime := &MockRuntime{
+		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
+			return &MockHandle{
+				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
+					// Simulate a job that takes 150ms (longer than heartbeat interval of 50ms)
+					time.Sleep(150 * time.Millisecond)
+					return runtime.ExitResult{ExitCode: 0}, nil
+				},
+			}, nil
+		},
+	}
+
+	agent := New(queue, mockRuntime, AgentConfig{
+		HeartbeatInterval:   50 * time.Millisecond, // Short interval for testing
+		VisibilityExtension: 5 * time.Minute,       // Explicit extension time
+	}, nil)
+
+	agent.processItem(context.Background(), execID, payload)
+
+	// Heartbeat should have been called at least once (150ms job / 50ms interval = ~2 calls)
+	queue.mu.Lock()
+	heartbeatCalls := len(queue.SetVisibleAfterCalls)
+	queue.mu.Unlock()
+
+	if heartbeatCalls < 1 {
+		t.Errorf("expected at least 1 heartbeat call during long job, got %d", heartbeatCalls)
+	}
+
+	// Verify heartbeat was for the correct execution
+	if heartbeatCalls > 0 {
+		queue.mu.Lock()
+		firstCall := queue.SetVisibleAfterCalls[0]
+		queue.mu.Unlock()
+
+		if firstCall.ExecutionID != execID {
+			t.Errorf("heartbeat called with wrong execution ID: got %s, want %s", firstCall.ExecutionID, execID)
+		}
+
+		// Visibility should be extended ~5 minutes into the future (based on VisibilityExtension config)
+		expectedMin := time.Now().Add(4 * time.Minute)
+		if firstCall.VisibleAfter.Before(expectedMin) {
+			t.Errorf("heartbeat visibility extension too short: %v", firstCall.VisibleAfter)
+		}
+	}
+}
+
+func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
+	execID := uuid.New()
+	jobID := uuid.New()
+	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo"}})
+
+	queue := &MockQueue{}
+
+	mockRuntime := &MockRuntime{
+		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
+			return &MockHandle{
+				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
+					// Fast job - completes before heartbeat fires
+					return runtime.ExitResult{ExitCode: 0}, nil
+				},
+			}, nil
+		},
+	}
+
+	agent := New(queue, mockRuntime, AgentConfig{
+		HeartbeatInterval: 5 * time.Second, // Long interval - job will complete before it fires
+	}, nil)
+
+	agent.processItem(context.Background(), execID, payload)
+
+	// Wait a bit to ensure no delayed heartbeat
+	time.Sleep(50 * time.Millisecond)
+
+	queue.mu.Lock()
+	heartbeatCalls := len(queue.SetVisibleAfterCalls)
+	queue.mu.Unlock()
+
+	// No heartbeat should have been called for a fast job
+	if heartbeatCalls != 0 {
+		t.Errorf("expected 0 heartbeat calls for fast job, got %d", heartbeatCalls)
 	}
 }
