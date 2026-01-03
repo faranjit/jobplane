@@ -75,6 +75,21 @@ func (a *Agent) Run(ctx context.Context) error {
 	sem := make(chan struct{}, a.config.Concurrency)
 	var wg sync.WaitGroup
 
+	// Channel to signal when a slot becomes available (adaptive polling)
+	pollNow := make(chan struct{}, 1)
+
+	// Helper to trigger immediate non-blocking re-poll
+	triggerPoll := func() {
+		select {
+		case pollNow <- struct{}{}:
+		default:
+			// Already a poll pending
+		}
+	}
+
+	// Initial poll
+	triggerPoll()
+
 	ticker := time.NewTicker(a.config.PollInterval)
 	defer ticker.Stop()
 
@@ -85,7 +100,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			wg.Wait()
 			close(a.done)
 			return ctx.Err()
+
 		case <-ticker.C:
+			// Regular interval poll (fallback)
+			triggerPoll()
+
+		case <-pollNow:
 			// Count available slots
 			availableSlots := a.config.Concurrency - len(sem)
 			if availableSlots <= 0 {
@@ -95,7 +115,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			// Batch dequeue up to available slots
 			items, err := a.queue.DequeueBatch(ctx, a.tenantIDs, availableSlots)
 			if err != nil {
-				// Log only unexpected errors, not empty queue
 				log.Printf("DequeueBatch error: %v", err)
 				continue
 			}
@@ -116,9 +135,16 @@ func (a *Agent) Run(ctx context.Context) error {
 					defer wg.Done()
 					defer func() {
 						<-sem
+						// Signal that a slot is now available - trigger immediate re-poll
+						triggerPoll()
 					}()
 					a.processItem(ctx, execID, payload)
 				}(item.ExecutionID, item.Payload)
+			}
+
+			// If we got jobs and there are still slots available, poll again immediately
+			if len(items) > 0 && len(items) < availableSlots {
+				triggerPoll()
 			}
 		}
 	}
