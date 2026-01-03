@@ -53,9 +53,17 @@ CREATE TABLE execution_logs (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Index for the Worker's "Dequeue" query
-CREATE INDEX idx_queue_poll ON execution_queue (tenant_id, visible_after) 
-WHERE execution_id IS NOT NULL;
+-- Primary dequeue index: covers WHERE visible_after <= NOW() ORDER BY created_at
+-- This index allows PostgreSQL to:
+-- 1. Use an index scan to filter visible_after <= NOW()
+-- 2. Return rows already sorted by created_at (no extra sort step)
+CREATE INDEX idx_queue_dequeue ON execution_queue (visible_after, created_at)
+WHERE visible_after IS NOT NULL;
+
+-- Tenant-filtered dequeue index: for when workers are assigned to specific tenants
+-- Covers: WHERE visible_after <= NOW() AND tenant_id = ANY(...) ORDER BY created_at
+CREATE INDEX idx_queue_tenant_dequeue ON execution_queue (tenant_id, visible_after, created_at)
+WHERE visible_after IS NOT NULL;
 
 -- Index by execution time
 CREATE INDEX idx_logs_execution_time ON execution_logs (execution_id, created_at);
