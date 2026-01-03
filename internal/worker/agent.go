@@ -291,6 +291,11 @@ func (a *Agent) runHeartbeat(ctx context.Context, execID uuid.UUID) {
 }
 
 func (a *Agent) streamLogs(ctx context.Context, executionID uuid.UUID, handle runtime.Handle) {
+	const (
+		logBatchSize     = 100         // Max lines per batch
+		logFlushInterval = time.Second // Flush at least every second
+	)
+
 	rc, err := handle.StreamLogs(ctx)
 	if err != nil {
 		log.Printf("Failed to get log stream for %s: %v", executionID, err)
@@ -298,23 +303,61 @@ func (a *Agent) streamLogs(ctx context.Context, executionID uuid.UUID, handle ru
 	}
 	defer rc.Close()
 
-	scanner := bufio.NewScanner(rc)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Sanitize null bytes (Postgres rejects \x00)
-		if strings.Contains(line, "\x00") {
-			line = strings.ReplaceAll(line, "\x00", "")
-		}
+	var batch []string
+	flushTicker := time.NewTicker(logFlushInterval)
+	defer flushTicker.Stop()
 
-		// This is chatty (one request per line). Optimization is a future task.
-		if err := a.sendLogs(ctx, executionID, line); err != nil {
-			log.Printf("Failed to ship log for %s: %v", executionID, err)
+	// Channel for lines from scanner
+	lineChan := make(chan string, 100)
+
+	// Scanner goroutine - reads lines and sends to channel
+	go func() {
+		defer close(lineChan)
+		scanner := bufio.NewScanner(rc)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Sanitize null bytes (Postgres rejects \x00)
+			if strings.Contains(line, "\x00") {
+				line = strings.ReplaceAll(line, "\x00", "")
+			}
+			select {
+			case lineChan <- line:
+			case <-ctx.Done():
+				return
+			}
 		}
+	}()
+
+	// Flush helper - sends batch to controller
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		content := strings.Join(batch, "\n")
+		if err := a.sendLogs(ctx, executionID, content); err != nil {
+			log.Printf("Failed to ship logs for %s: %v", executionID, err)
+		}
+		batch = batch[:0] // Clear batch
 	}
 
-	if err := scanner.Err(); err != nil {
-		if err != context.Canceled && err != context.DeadlineExceeded {
-			log.Printf("Log stream error for %s: %v", executionID, err)
+	// Main loop: batch lines and flush periodically
+	for {
+		select {
+		case line, ok := <-lineChan:
+			if !ok {
+				// Scanner finished, flush remaining
+				flush()
+				return
+			}
+			batch = append(batch, line)
+			if len(batch) >= logBatchSize {
+				flush()
+			}
+		case <-flushTicker.C:
+			flush()
+		case <-ctx.Done():
+			flush()
+			return
 		}
 	}
 }
