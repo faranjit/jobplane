@@ -40,6 +40,9 @@ jobplane allows teams to define background jobs, enqueue executions, and run the
 - **Pluggable Runtimes** – Docker containers or raw processes
 - **Postgres-Backed Queue** – `SELECT FOR UPDATE SKIP LOCKED` for reliable job claiming
 - **Graceful Shutdown** – SIGTERM handling with in-flight execution completion
+- **Log Streaming** – Real-time log streaming from workers to controller with batch optimization
+- **Timeout Enforcement** – Hard deadlines via `context.WithTimeout`
+- **Heartbeat-Based Visibility** – Long-running jobs extend queue visibility to prevent duplicate pickup
 
 ## Project Structure
 
