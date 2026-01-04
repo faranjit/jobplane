@@ -129,5 +129,5 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		h.httpError(w, "Failed to commit transaction", http.StatusInternalServerError)
 	}
 
-	h.respondJson(w, http.StatusOK, map[string]string{"execution_id": execution.ID.String()})
+	h.respondJson(w, http.StatusOK, api.RunJobResponse{ExecutionID: execution.ID.String()})
 }

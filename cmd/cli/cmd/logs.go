@@ -1,10 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-	"jobplane/pkg/api"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -40,11 +36,11 @@ var logsCmd = &cobra.Command{
 			os.Exit(0)
 		}()
 
+		client := NewJobClient(url, token)
 		var lastID int64 = 0
-		client := &http.Client{Timeout: 30 * time.Second}
 
 		for {
-			newLogs, err := fetchLogs(client, url, token, executionID, lastID)
+			newLogs, err := client.GetLogs(executionID, lastID)
 			if err != nil {
 				cmd.Printf("Error fetching logs: %v\n", err)
 				if !follow {
@@ -82,34 +78,6 @@ var logsCmd = &cobra.Command{
 			time.Sleep(1 * time.Second)
 		}
 	},
-}
-
-func fetchLogs(client *http.Client, baseURL, token, execID string, afterID int64) ([]api.LogEntry, error) {
-	endpoint := fmt.Sprintf("%s/executions/%s/logs?after_id=%d", baseURL, execID, afterID)
-
-	req, err := http.NewRequest("GET", endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	var result api.GetLogsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	return result.Logs, nil
 }
 
 func init() {

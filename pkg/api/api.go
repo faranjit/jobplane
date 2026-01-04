@@ -29,6 +29,11 @@ type CreateJobResponse struct {
 	JobID string `json:"job_id"`
 }
 
+// RunJobResponse is the response body after running a job.
+type RunJobResponse struct {
+	ExecutionID string `json:"execution_id"`
+}
+
 // JobStatusResponse is the response body for job status queries.
 type JobStatusResponse struct {
 	ID        string     `json:"id"`

@@ -24,14 +24,17 @@ control plane / data plane separation:
 
 Common workflows:
   
-  Submit a job definition:
-    jobctl create --name "my-job" --image "python:3.11" --command "python script.py"
+  Create a job definition:
+    jobctl create --name "my-job" --image "python:3.11" --command "python,script.py"
 
-  Run a job:
+  Run an existing job:
     jobctl run <job-id>
 
+  Create and run a job in one step:
+    jobctl submit --name "quick-job" --image "alpine" --command "echo,hello"
+
   Check execution status:
-    jobctl get <execution-id>
+    jobctl status <execution-id>
 
   Stream logs:
     jobctl logs <execution-id> --follow

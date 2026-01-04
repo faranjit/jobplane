@@ -1,12 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"time"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -26,37 +20,18 @@ var runCmd = &cobra.Command{
 			return
 		}
 
-		endpoint := fmt.Sprintf("%s/jobs/%s/run", url, jobID)
-		req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+		client := NewJobClient(url, token)
+		result, err := client.RunJob(jobID)
 		if err != nil {
-			cmd.Printf("Failed to create request: %v\n", err)
+			if apiErr, ok := err.(*APIError); ok {
+				cmd.Printf("Error (%d): %s\n", apiErr.StatusCode, apiErr.Message)
+			} else {
+				cmd.Printf("Error: %v\n", err)
+			}
 			return
 		}
 
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-		req.Header.Add("Content-Type", "application/json")
-
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			cmd.Printf("Request failed: %v\n", err)
-			return
-		}
-		defer resp.Body.Close()
-
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			cmd.Printf("Error (%d): %s\n", resp.StatusCode, string(bodyBytes))
-			return
-		}
-
-		var result map[string]string
-		if err := json.Unmarshal(bodyBytes, &result); err != nil {
-			cmd.Println("Execution started (failed to parse response)")
-			return
-		}
-
-		cmd.Printf("🚀 Execution started!\nID: %s\n", result["execution_id"])
+		cmd.Printf("🚀 Execution started!\nID: %s\n", result.ExecutionID)
 	},
 }
 

@@ -3,12 +3,11 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"jobplane/pkg/api"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"jobplane/pkg/api"
 
 	"github.com/spf13/viper"
 )
@@ -330,8 +329,8 @@ func TestFetchLogs_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &http.Client{}
-	logs, err := fetchLogs(client, server.URL, "test-token", "exec-123", 10)
+	client := NewJobClient(server.URL, "test-token")
+	logs, err := client.GetLogs("exec-123", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -350,8 +349,8 @@ func TestFetchLogs_HTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &http.Client{}
-	_, err := fetchLogs(client, server.URL, "test-token", "exec-123", 0)
+	client := NewJobClient(server.URL, "test-token")
+	_, err := client.GetLogs("exec-123", 0)
 	if err == nil {
 		t.Error("expected error for 403 status")
 	}
@@ -367,8 +366,8 @@ func TestFetchLogs_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &http.Client{}
-	_, err := fetchLogs(client, server.URL, "test-token", "exec-123", 0)
+	client := NewJobClient(server.URL, "test-token")
+	_, err := client.GetLogs("exec-123", 0)
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}

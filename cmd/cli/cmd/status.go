@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"jobplane/pkg/api"
-	"net/http"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -28,33 +25,14 @@ var statusCmd = &cobra.Command{
 			return
 		}
 
-		endpoint := fmt.Sprintf("%s/executions/%s", url, executionID)
-		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+		client := NewJobClient(url, token)
+		execution, err := client.GetExecution(executionID)
 		if err != nil {
-			cmd.Printf("Failed to create request: %v\n", err)
-			return
-		}
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-		req.Header.Add("Content-Type", "application/json")
-
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			cmd.Printf("Failed to send request: %v\n", err)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			cmd.Printf("Request failed with status code: %d\n", resp.StatusCode)
-			return
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-
-		var execution api.ExecutionResponse
-		if err := json.Unmarshal(body, &execution); err != nil {
-			cmd.Printf("Failed to parse response: %v\n", err)
+			if apiErr, ok := err.(*APIError); ok {
+				cmd.Printf("Request failed with status code: %d\n", apiErr.StatusCode)
+			} else {
+				cmd.Printf("Error: %v\n", err)
+			}
 			return
 		}
 
@@ -62,7 +40,7 @@ var statusCmd = &cobra.Command{
 	},
 }
 
-func printStatus(cmd *cobra.Command, execution api.ExecutionResponse) {
+func printStatus(cmd *cobra.Command, execution *api.ExecutionResponse) {
 	// Header with status icon
 	icon := statusIcon(execution.Status)
 	cmd.Printf("%s %sExecution Details%s\n", icon, colorBold, colorReset)
