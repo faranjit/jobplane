@@ -30,12 +30,24 @@ func main() {
 	}
 	defer store.Close()
 
-	docker, err := runtime.NewDockerRuntime()
-	if err != nil {
-		log.Fatalf("Failed to create Docker runtime: %v", err)
+	// Select runtime based on configuration
+	var rt runtime.Runtime
+	switch cfg.Runtime {
+	case "exec":
+		rt = runtime.NewExecRuntime(cfg.RuntimeWorkDir)
+		log.Printf("Using exec runtime (workdir: %s)", cfg.RuntimeWorkDir)
+	case "docker":
+		fallthrough
+	default:
+		dockerRT, err := runtime.NewDockerRuntime()
+		if err != nil {
+			log.Fatalf("Failed to create Docker runtime: %v", err)
+		}
+		rt = dockerRT
+		log.Println("Using docker runtime")
 	}
 
-	agent := worker.New(store, docker, worker.AgentConfig{
+	agent := worker.New(store, rt, worker.AgentConfig{
 		Concurrency:         cfg.WorkerConcurrency,
 		PollInterval:        cfg.WorkerPollInterval,
 		ControllerURL:       cfg.ControllerURL,

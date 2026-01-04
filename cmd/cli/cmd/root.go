@@ -25,16 +25,16 @@ control plane / data plane separation:
 Common workflows:
   
   Submit a job definition:
-    jobctl jobs create --name "my-job" --image "python:3.11" --command "python script.py"
+    jobctl create --name "my-job" --image "python:3.11" --command "python script.py"
 
   Run a job:
-    jobctl jobs run <job-id>
+    jobctl run <job-id>
 
   Check execution status:
-    jobctl executions get <execution-id>
+    jobctl get <execution-id>
 
   Stream logs:
-    jobctl executions logs <execution-id> --follow
+    jobctl logs <execution-id> --follow
 
 Configuration:
   Set the API endpoint and credentials via environment variables or a config file:

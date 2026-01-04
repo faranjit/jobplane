@@ -33,6 +33,12 @@ type Config struct {
 
 	// URL of the Control Plane (e.g., "http://localhost:8080")
 	ControllerURL string
+
+	// Runtime type: "docker" (default) or "exec"
+	Runtime string
+
+	// WorkDir for exec runtime (optional, defaults to system temp)
+	RuntimeWorkDir string
 }
 
 // Load reads configuration from environment variables.
@@ -112,6 +118,17 @@ func Load() (*Config, error) {
 		visibilityExtension = ve
 	}
 
+	// Runtime selection
+	runtimeType := os.Getenv("RUNTIME")
+	if runtimeType == "" {
+		runtimeType = "docker" // Default
+	}
+	if runtimeType != "docker" && runtimeType != "exec" {
+		return nil, fmt.Errorf("invalid RUNTIME: must be 'docker' or 'exec', got '%s'", runtimeType)
+	}
+
+	runtimeWorkDir := os.Getenv("RUNTIME_WORKDIR") // Optional, exec runtime only
+
 	return &Config{
 		DatabaseURL:               dbUrl,
 		HTTPPort:                  port,
@@ -121,5 +138,7 @@ func Load() (*Config, error) {
 		WorkerHeartbeatInterval:   heartbeatInterval,
 		WorkerVisibilityExtension: visibilityExtension,
 		ControllerURL:             controllerURL,
+		Runtime:                   runtimeType,
+		RuntimeWorkDir:            runtimeWorkDir,
 	}, nil
 }
