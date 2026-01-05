@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
@@ -120,11 +121,19 @@ func TestRunJob(t *testing.T) {
 		Image:    "alpine",
 	}
 
+	// scheduled time for checking
+	scheduleTime := time.Now().Add(1 * time.Second).UTC()
+
+	// Past time for error checking
+	pastTime := time.Now().UTC().Add(-1 * time.Hour)
+
 	tests := []struct {
 		name           string
 		jobIDParam     string
+		body           api.RunJobRequest
 		mockSetup      func(*mockStore)
 		expectedStatus int
+		verify         func(*testing.T, *mockStore)
 	}{
 		{
 			name:       "Success",
@@ -133,6 +142,37 @@ func TestRunJob(t *testing.T) {
 				m.getJobByIDResp = validJob
 			},
 			expectedStatus: http.StatusOK,
+			verify: func(t *testing.T, m *mockStore) {
+				// Should be roughly now
+				if time.Since(m.capturedVisibleAfter) > 5*time.Second {
+					t.Error("Expected immediate execution (visibleAfter ~ Now)")
+				}
+			},
+		},
+		{
+			name:       "Success - Schuled",
+			jobIDParam: jobID.String(),
+			body:       api.RunJobRequest{ScheduledAt: &scheduleTime},
+			mockSetup: func(m *mockStore) {
+				m.getJobByIDResp = validJob
+			},
+			expectedStatus: http.StatusOK,
+			verify: func(t *testing.T, m *mockStore) {
+				// Should match the scheduled time exactly (ignoring monotonic clock diffs)
+				diff := m.capturedVisibleAfter.Sub(scheduleTime)
+				if diff < -time.Second || diff > time.Second {
+					t.Errorf("Expected visibleAfter %v, got %v", scheduleTime, m.capturedVisibleAfter)
+				}
+			},
+		},
+		{
+			name:       "Failure - Past Schedule",
+			jobIDParam: jobID.String(),
+			body:       api.RunJobRequest{ScheduledAt: &pastTime},
+			mockSetup: func(m *mockStore) {
+				m.getJobByIDResp = validJob
+			},
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "Invalid UUID Format",
@@ -184,7 +224,8 @@ func TestRunJob(t *testing.T) {
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /jobs/{id}/run", h.RunJob)
 
-			req := httptest.NewRequest(http.MethodPost, "/jobs/"+tt.jobIDParam+"/run", nil)
+			bodyBytes, _ := json.Marshal(tt.body)
+			req := httptest.NewRequest(http.MethodPost, "/jobs/"+tt.jobIDParam+"/run", bytes.NewReader(bodyBytes))
 
 			// Inject Tenant Context
 			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
@@ -198,6 +239,10 @@ func TestRunJob(t *testing.T) {
 			if rr.Code != tt.expectedStatus {
 				t.Errorf("handler returned wrong status code: got %v want %v body: %v",
 					rr.Code, tt.expectedStatus, rr.Body.String())
+			}
+
+			if tt.verify != nil {
+				tt.verify(t, mock)
 			}
 		})
 	}

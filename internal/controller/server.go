@@ -21,6 +21,10 @@ func New(addr string, store handlers.StoreFactory) *Server {
 
 	mux := http.NewServeMux()
 
+	// Probes (No Auth)
+	mux.HandleFunc("GET /healthz", h.Healthz)
+	mux.HandleFunc("GET /readyz", h.Readyz)
+
 	mux.HandleFunc("POST /tenants", h.CreateTenant)
 
 	// Public authenticated apis

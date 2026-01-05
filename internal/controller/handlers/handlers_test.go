@@ -36,6 +36,7 @@ type mockStore struct {
 	getJobByIDResp *store.Job
 	createExecErr  error
 	enqueueErr     error
+	pingErr        error
 
 	// Tenant Hooks
 	createTenantErr error
@@ -53,8 +54,9 @@ type mockStore struct {
 	getExecutionLogsErr  error
 
 	// Spies (to verify arguments passed by handlers)
-	capturedAfterID int64
-	capturedLimit   int
+	capturedAfterID      int64
+	capturedLimit        int
+	capturedVisibleAfter time.Time
 }
 
 func (m *mockStore) BeginTx(ctx context.Context) (store.Tx, error) {
@@ -62,6 +64,10 @@ func (m *mockStore) BeginTx(ctx context.Context) (store.Tx, error) {
 		return nil, m.beginTxErr
 	}
 	return &mockTx{}, nil
+}
+
+func (m *mockStore) Ping(ctx context.Context) error {
+	return m.pingErr
 }
 
 func (m *mockStore) CreateJob(ctx context.Context, tx store.DBTransaction, job *store.Job) error {
@@ -77,6 +83,7 @@ func (m *mockStore) CreateExecution(ctx context.Context, tx store.DBTransaction,
 }
 
 func (m *mockStore) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error) {
+	m.capturedVisibleAfter = visibleAfter
 	return 1, m.enqueueErr
 }
 

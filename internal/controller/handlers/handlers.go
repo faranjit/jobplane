@@ -13,6 +13,7 @@ import (
 // StoreFactory combines the interfaces needed for the controller to function.
 type StoreFactory interface {
 	BeginTx(ctx context.Context) (store.Tx, error)
+	Ping(ctx context.Context) error
 	store.JobStore
 	store.TenantStore
 	store.Queue

@@ -16,6 +16,11 @@ type Store struct {
 	db *sql.DB
 }
 
+// Ping verifies a connection to the database is still alive.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 // New creates a connected Store instance.
 // It verifies the connection with a Ping before returning.
 func New(ctx context.Context, databaseURL string) (*Store, error) {
