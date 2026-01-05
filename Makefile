@@ -41,11 +41,6 @@ run-worker:
 	@echo "Starting Worker..."
 	go run cmd/worker/main.go
 
-# Run database migrations
-migrate:
-	@echo "Running migrations..."
-	@echo "TODO: Add migration tool (e.g., golang-migrate)"
-
 # Clean build artifacts
 clean:
 	rm -rf bin/
@@ -54,7 +49,10 @@ clean:
 test:
 	go test -v ./...
 
+# Run tests with coverage
+test-coverage:
+	go test -race -coverprofile=coverage.out ./...
+
 # Lint code
 lint:
-	go vet ./...
-	@which golangci-lint > /dev/null || echo "Install golangci-lint for full linting"
+	golangci-lint run ./...

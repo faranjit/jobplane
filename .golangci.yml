@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+
+  exclusions:
+    rules:
+      # Ignore error strings capitalization in this project
+      - linters:
+          - staticcheck
+        text: "ST1005"
+      # Ignore empty branch warning
+      - linters:
+          - staticcheck
+        text: "SA9003"
