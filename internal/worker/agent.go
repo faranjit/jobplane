@@ -215,16 +215,13 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 
 	// Start Span
 	tracer := otel.Tracer("worker-agent")
-	spanCtx, span := tracer.Start(traceCtx, "process_job",
-		trace.WithAttributes(
-			attribute.String("job.id", jobDef.ID.String()),
-			attribute.String("execution.id", execID.String()),
-			attribute.String("job.name", jobDef.Name),
-			attribute.String("job.image", jobDef.Image),
-			attribute.String("tenant.id", jobDef.TenantID.String()),
-		),
-		trace.WithSpanKind(trace.SpanKindConsumer),
-	)
+	spanCtx, span := tracer.Start(traceCtx, "process_job", trace.WithAttributes(
+		attribute.String("job.id", jobDef.ID.String()),
+		attribute.String("execution.id", execID.String()),
+		attribute.String("job.name", jobDef.Name),
+		attribute.String("job.image", jobDef.Image),
+		attribute.String("tenant.id", jobDef.TenantID.String()),
+	), trace.WithSpanKind(trace.SpanKindConsumer))
 	defer span.End()
 
 	log.Printf("Processing execution %s", execID)

@@ -27,15 +27,19 @@ run-dev:
 	@echo "Starting Controller..."
 	go run cmd/controller/main.go
 
+# Run Controller with migrations
+run-migrate:
+	@echo "Starting DB..."
+	docker-compose up -d
+	@echo "Waiting for DB..."
+	@sleep 5
+	@echo "Running migrations and starting Controller..."
+	go run cmd/controller/main.go --migrate
+
 # Run Worker
 run-worker:
 	@echo "Starting Worker..."
 	go run cmd/worker/main.go
-
-# Run database migrations
-migrate:
-	@echo "Running migrations..."
-	@echo "TODO: Add migration tool (e.g., golang-migrate)"
 
 # Clean build artifacts
 clean:
@@ -45,7 +49,10 @@ clean:
 test:
 	go test -v ./...
 
+# Run tests with coverage
+test-coverage:
+	go test -race -coverprofile=coverage.out ./...
+
 # Lint code
 lint:
-	go vet ./...
-	@which golangci-lint > /dev/null || echo "Install golangci-lint for full linting"
+	golangci-lint run ./...

@@ -42,6 +42,12 @@ func (s *Store) Close() error {
 	return nil
 }
 
+// DB returns the underlying database connection.
+// This is used by the migration runner.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // BeginTx starts a new transaction.
 // The caller is responsible for calling Commit() or Rollback().
 func (s *Store) BeginTx(ctx context.Context) (store.Tx, error) {

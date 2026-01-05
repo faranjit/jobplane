@@ -1,144 +1,114 @@
-// Package config handles environment variable loading for ports, database strings, etc.
+// Package config handles configuration loading from files and environment variables.
 package config
 
 import (
 	"fmt"
-	"os"
-	"strconv"
+	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 // Config holds all configuration values for the application.
 type Config struct {
 	// Database connection string
-	DatabaseURL string
+	DatabaseURL string `mapstructure:"database_url"`
 
 	// HTTP server port for the controller
-	HTTPPort int
+	HTTPPort int `mapstructure:"http_port"`
 
 	// Worker-specific configuration
-	WorkerConcurrency int
+	WorkerConcurrency int `mapstructure:"worker_concurrency"`
 
 	// Worker Poll Interval
-	WorkerPollInterval time.Duration
+	WorkerPollInterval time.Duration `mapstructure:"worker_poll_interval"`
 
 	// Maximum backoff when queue is empty
-	WorkerMaxBackoff time.Duration
+	WorkerMaxBackoff time.Duration `mapstructure:"worker_max_backoff"`
 
 	// Heartbeat interval during job execution
-	WorkerHeartbeatInterval time.Duration
+	WorkerHeartbeatInterval time.Duration `mapstructure:"worker_heartbeat_interval"`
 
 	// How long to extend visibility timeout on each heartbeat
-	WorkerVisibilityExtension time.Duration
+	WorkerVisibilityExtension time.Duration `mapstructure:"worker_visibility_extension"`
 
-	// URL of the Control Plane (e.g., "http://localhost:8080")
-	ControllerURL string
+	// URL of the Control Plane (e.g., "http://localhost:6161")
+	ControllerURL string `mapstructure:"controller_url"`
 
 	// Runtime type: "docker" (default) or "exec"
-	Runtime string
+	Runtime string `mapstructure:"runtime"`
 
 	// WorkDir for exec runtime (optional, defaults to system temp)
-	RuntimeWorkDir string
+	RuntimeWorkDir string `mapstructure:"runtime_workdir"`
+
+	// OpenTelemetry collector endpoint
+	OTELEndpoint string `mapstructure:"otel_endpoint"`
 }
 
-// Load reads configuration from environment variables.
-func Load() (*Config, error) {
-	dbUrl := os.Getenv("DATABASE_URL")
-	if dbUrl == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
-	}
+// Load reads configuration from file (if provided) and environment variables.
+// Environment variables take precedence over config file values.
+func Load(configPath string) (*Config, error) {
+	v := viper.New()
 
-	portStr := os.Getenv("PORT")
-	port := 6161 // Default
-	if portStr != "" {
-		p, err := strconv.Atoi(portStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid PORT: %w", err)
+	// Set defaults
+	v.SetDefault("http_port", 6161)
+	v.SetDefault("worker_concurrency", 1)
+	v.SetDefault("worker_poll_interval", "1s")
+	v.SetDefault("worker_max_backoff", "30s")
+	v.SetDefault("worker_heartbeat_interval", "2m")
+	v.SetDefault("worker_visibility_extension", "5m")
+	v.SetDefault("controller_url", "http://localhost:6161")
+	v.SetDefault("runtime", "docker")
+	v.SetDefault("otel_endpoint", "localhost:4317")
+
+	// Read config file if specified
+	if configPath != "" {
+		v.SetConfigFile(configPath)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
-		port = p
+	} else {
+		// Look for jobplane.yaml in current directory
+		v.SetConfigName("jobplane")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		// Ignore error if file doesn't exist
+		_ = v.ReadInConfig()
 	}
 
-	// Worker Concurrency
-	concurrencyStr := os.Getenv("WORKER_CONCURRENCY")
-	concurrency := 1 // Default
-	if concurrencyStr != "" {
-		c, err := strconv.Atoi(concurrencyStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WORKER_CONCURRENCY: %w", err)
-		}
-		concurrency = c
+	// Bind environment variables
+	// Map env var names to config keys
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	// Manual bindings for backward compatibility
+	_ = v.BindEnv("database_url", "DATABASE_URL")
+	_ = v.BindEnv("http_port", "PORT")
+	_ = v.BindEnv("worker_concurrency", "WORKER_CONCURRENCY")
+	_ = v.BindEnv("worker_poll_interval", "WORKER_POLL_INTERVAL")
+	_ = v.BindEnv("worker_max_backoff", "WORKER_MAX_BACKOFF")
+	_ = v.BindEnv("worker_heartbeat_interval", "WORKER_HEARTBEAT_INTERVAL")
+	_ = v.BindEnv("worker_visibility_extension", "WORKER_VISIBILITY_EXTENSION")
+	_ = v.BindEnv("controller_url", "CONTROLLER_URL")
+	_ = v.BindEnv("runtime", "RUNTIME")
+	_ = v.BindEnv("runtime_workdir", "RUNTIME_WORKDIR")
+	_ = v.BindEnv("otel_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT")
+
+	// Validate required fields
+	if v.GetString("database_url") == "" {
+		return nil, fmt.Errorf("database_url is required (env: DATABASE_URL)")
 	}
 
-	// Worker Poll Interval
-	pollIntervalStr := os.Getenv("WORKER_POLL_INTERVAL")
-	pollInterval := 1 * time.Second // Default
-	if pollIntervalStr != "" {
-		pi, err := time.ParseDuration(pollIntervalStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WORKER_POLL_INTERVAL: %w", err)
-		}
-		pollInterval = pi
+	// Parse config
+	cfg := &Config{}
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	controllerURL := os.Getenv("CONTROLLER_URL")
-	if controllerURL == "" {
-		controllerURL = "http://localhost:6161"
+	// Validate runtime
+	if cfg.Runtime != "docker" && cfg.Runtime != "exec" {
+		return nil, fmt.Errorf("invalid runtime: must be 'docker' or 'exec', got '%s'", cfg.Runtime)
 	}
 
-	// Worker Max Backoff
-	maxBackoffStr := os.Getenv("WORKER_MAX_BACKOFF")
-	maxBackoff := 30 * time.Second // Default
-	if maxBackoffStr != "" {
-		mb, err := time.ParseDuration(maxBackoffStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WORKER_MAX_BACKOFF: %w", err)
-		}
-		maxBackoff = mb
-	}
-
-	// Worker Heartbeat Interval
-	heartbeatIntervalStr := os.Getenv("WORKER_HEARTBEAT_INTERVAL")
-	heartbeatInterval := 2 * time.Minute // Default
-	if heartbeatIntervalStr != "" {
-		hi, err := time.ParseDuration(heartbeatIntervalStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WORKER_HEARTBEAT_INTERVAL: %w", err)
-		}
-		heartbeatInterval = hi
-	}
-
-	// Worker Visibility Extension
-	visibilityExtensionStr := os.Getenv("WORKER_VISIBILITY_EXTENSION")
-	visibilityExtension := 5 * time.Minute // Default
-	if visibilityExtensionStr != "" {
-		ve, err := time.ParseDuration(visibilityExtensionStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid WORKER_VISIBILITY_EXTENSION: %w", err)
-		}
-		visibilityExtension = ve
-	}
-
-	// Runtime selection
-	runtimeType := os.Getenv("RUNTIME")
-	if runtimeType == "" {
-		runtimeType = "docker" // Default
-	}
-	if runtimeType != "docker" && runtimeType != "exec" {
-		return nil, fmt.Errorf("invalid RUNTIME: must be 'docker' or 'exec', got '%s'", runtimeType)
-	}
-
-	runtimeWorkDir := os.Getenv("RUNTIME_WORKDIR") // Optional, exec runtime only
-
-	return &Config{
-		DatabaseURL:               dbUrl,
-		HTTPPort:                  port,
-		WorkerConcurrency:         concurrency,
-		WorkerPollInterval:        pollInterval,
-		WorkerMaxBackoff:          maxBackoff,
-		WorkerHeartbeatInterval:   heartbeatInterval,
-		WorkerVisibilityExtension: visibilityExtension,
-		ControllerURL:             controllerURL,
-		Runtime:                   runtimeType,
-		RuntimeWorkDir:            runtimeWorkDir,
-	}, nil
+	return cfg, nil
 }

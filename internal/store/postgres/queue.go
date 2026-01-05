@@ -183,7 +183,7 @@ func (s *Store) Fail(ctx context.Context, tx store.DBTransaction, executionID uu
 		backoff := time.Duration(10*(1<<attempt)) * time.Second
 		_, err = executor.ExecContext(ctx, `
 			UPDATE execution_queue 
-			SET attempt = attempt + 1, visible_after = NOW() + ($1 * INTERVAL '1 second')
+			SET visible_after = NOW() + ($1 * INTERVAL '1 second')
 			WHERE execution_id = $2
 		`, backoff.Seconds(), executionID)
 		return err
