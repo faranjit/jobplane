@@ -1,0 +1,55 @@
+# jobplane Configuration File
+# All values can be overridden by environment variables
+
+# Database connection string (required)
+# Env: DATABASE_URL
+database_url: "postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable"
+
+# HTTP server port for the controller
+# Env: PORT
+http_port: 6161
+
+# Worker configuration
+# -------------------
+
+# Number of concurrent job executions per worker
+# Env: WORKER_CONCURRENCY
+worker_concurrency: 1
+
+# Interval between queue polls when idle
+# Env: WORKER_POLL_INTERVAL
+worker_poll_interval: "1s"
+
+# Maximum backoff when queue is empty
+# Env: WORKER_MAX_BACKOFF
+worker_max_backoff: "30s"
+
+# Heartbeat interval during job execution
+# Env: WORKER_HEARTBEAT_INTERVAL
+worker_heartbeat_interval: "2m"
+
+# How long to extend visibility timeout on each heartbeat
+# Env: WORKER_VISIBILITY_EXTENSION
+worker_visibility_extension: "5m"
+
+# URL of the Control Plane
+# Env: CONTROLLER_URL
+controller_url: "http://localhost:6161"
+
+# Runtime configuration
+# -------------------
+
+# Runtime type: "docker" or "exec"
+# Env: RUNTIME
+runtime: "docker"
+
+# Work directory for exec runtime (optional)
+# Env: RUNTIME_WORKDIR
+# runtime_workdir: "/tmp/jobplane"
+
+# Observability
+# -------------------
+
+# OpenTelemetry collector endpoint
+# Env: OTEL_EXPORTER_OTLP_ENDPOINT
+otel_endpoint: "localhost:4317"

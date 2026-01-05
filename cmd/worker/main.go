@@ -5,19 +5,25 @@ package main
 
 import (
 	"context"
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"jobplane/internal/config"
 	"jobplane/internal/observability"
 	"jobplane/internal/store/postgres"
 	"jobplane/internal/worker"
 	"jobplane/internal/worker/runtime"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 func main() {
-	cfg, err := config.Load()
+	// Parse flags
+	configPath := flag.String("config", "", "Path to config file (default: jobplane.yaml in current directory)")
+	flag.Parse()
+
+	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -26,13 +32,7 @@ func main() {
 	defer cancel()
 
 	// Tracing
-	// Default to Jaeger in Docker if env var is not set
-	collectorAddr := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if collectorAddr == "" {
-		collectorAddr = "localhost:4317"
-	}
-
-	shutdownTracer, err := observability.Init(ctx, "jobplane-worker", collectorAddr)
+	shutdownTracer, err := observability.Init(ctx, "jobplane-worker", cfg.OTELEndpoint)
 	if err != nil {
 		log.Fatalf("Failed to init tracing: %v", err)
 	}

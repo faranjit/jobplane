@@ -5,7 +5,6 @@ import "net/http"
 // Healthz is a liveness probe.
 // It returns 200 OK if the server is running.
 func (h *Handlers) Healthz(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	h.respondJson(w, http.StatusOK, map[string]string{"status": "healthy"})
 }
 

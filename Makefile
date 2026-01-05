@@ -27,6 +27,15 @@ run-dev:
 	@echo "Starting Controller..."
 	go run cmd/controller/main.go
 
+# Run Controller with migrations
+run-migrate:
+	@echo "Starting DB..."
+	docker-compose up -d
+	@echo "Waiting for DB..."
+	@sleep 5
+	@echo "Running migrations and starting Controller..."
+	go run cmd/controller/main.go --migrate
+
 # Run Worker
 run-worker:
 	@echo "Starting Worker..."

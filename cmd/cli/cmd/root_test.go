@@ -82,6 +82,10 @@ func TestExecute_ReturnsError(t *testing.T) {
 func TestRootCommand_CustomConfigFile(t *testing.T) {
 	resetViper()
 
+	// Clear any environment variables that might override config file
+	t.Setenv("JOBPLANE_TOKEN", "")
+	t.Setenv("JOBPLANE_URL", "")
+
 	// Create a temp config file
 	tmpFile, err := os.CreateTemp("", "jobctl-test-*.yaml")
 	if err != nil {

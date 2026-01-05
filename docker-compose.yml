@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: jobplane_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -11,8 +11,6 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     volumes:
-      # Mount the migration file
-      - ./internal/store/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
       # Persist data
       - postgres_data:/var/lib/postgresql/data
 
@@ -23,8 +21,8 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
     ports:
       - "16686:16686" # Web UI
-      - "4317:4317"   # OTLP gRPC receiver
-      - "4318:4318"   # OTLP HTTP receiver
+      - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318" # OTLP HTTP receiver
 
 volumes:
   postgres_data:

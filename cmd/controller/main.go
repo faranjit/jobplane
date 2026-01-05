@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -17,8 +18,13 @@ import (
 )
 
 func main() {
+	// Parse flags
+	migrateFlag := flag.Bool("migrate", false, "Run database migrations before starting")
+	configPath := flag.String("config", "", "Path to config file (default: jobplane.yaml in current directory)")
+	flag.Parse()
+
 	// Load Config
-	cfg, err := config.Load()
+	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -32,13 +38,17 @@ func main() {
 	}
 	defer store.Close()
 
-	// Tracing
-	collectorAddr := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if collectorAddr == "" {
-		collectorAddr = "localhost:4317" // Default to Jaeger in Docker
+	// Run migrations if requested
+	if *migrateFlag {
+		log.Println("Running database migrations...")
+		if err := postgres.Migrate(store.DB()); err != nil {
+			log.Fatalf("Migration failed: %v", err)
+		}
+		log.Println("Migrations completed successfully")
 	}
 
-	shutdownTracer, err := observability.Init(ctx, "jobplane-controller", collectorAddr)
+	// Tracing
+	shutdownTracer, err := observability.Init(ctx, "jobplane-controller", cfg.OTELEndpoint)
 	if err != nil {
 		log.Fatalf("Failed to init tracing: %v", err)
 	}
