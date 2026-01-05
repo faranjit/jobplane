@@ -131,3 +131,14 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/worker:latest
             ghcr.io/${{ github.repository }}/worker:${{ github.sha }}
+
+      - name: Build and push CLI
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          target: cli
+          tags: |
+            ghcr.io/${{ github.repository }}/jobctl:latest
+            ghcr.io/${{ github.repository }}/jobctl:${{ github.sha }}
