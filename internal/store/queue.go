@@ -13,7 +13,7 @@ import (
 // Implementations must use SELECT ... FOR UPDATE SKIP LOCKED semantics.
 type Queue interface {
 	// Enqueue adds a new execution to the queue.
-	Enqueue(ctx context.Context, tx DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error)
+	Enqueue(ctx context.Context, tx DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error)
 
 	// DequeueBatch claims up to 'limit' available executions atomically.
 	// Returns nil slice if queue is empty.

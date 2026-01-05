@@ -68,7 +68,8 @@ Example:
 		}
 
 		// Step 2: Run the job
-		runResult, err := client.RunJob(createResult.JobID)
+		// Empty request since submit triggers execution immediately
+		runResult, err := client.RunJob(createResult.JobID, api.RunJobRequest{})
 		if err != nil {
 			if apiErr, ok := err.(*APIError); ok {
 				cmd.Printf("Job created (ID: %s) but run failed (%d): %s\n", createResult.JobID, apiErr.StatusCode, apiErr.Message)

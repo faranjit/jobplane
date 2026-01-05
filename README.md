@@ -96,7 +96,7 @@ DATABASE_URL="postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable
 ### Submit a Job
 
 ```bash
-./bin/jobctl submit --name "hello" --image "alpine:latest" --command "echo" "Hello, jobplane!"
+./bin/jobctl submit --name "hello" --image "alpine:latest" --command "echo", "Hello, jobplane!"
 ```
 
 ## Architecture Invariants

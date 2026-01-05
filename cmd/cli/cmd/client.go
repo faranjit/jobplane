@@ -73,8 +73,13 @@ func (c *JobClient) CreateJob(req api.CreateJobRequest) (*api.CreateJobResponse,
 }
 
 // RunJob sends POST /jobs/{id}/run to trigger a new execution.
-func (c *JobClient) RunJob(jobID string) (*api.RunJobResponse, error) {
-	httpReq, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/jobs/%s/run", c.BaseURL, jobID), nil)
+func (c *JobClient) RunJob(jobID string, req api.RunJobRequest) (*api.RunJobResponse, error) {
+	bodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("invalid request body")
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/jobs/%s/run", c.BaseURL, jobID), bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

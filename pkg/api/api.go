@@ -29,6 +29,11 @@ type CreateJobResponse struct {
 	JobID string `json:"job_id"`
 }
 
+// RunJobRequest is the request body for submitting a new execution of a job.
+type RunJobRequest struct {
+	ScheduledAt *time.Time `json:"scheduled_at"`
+}
+
 // RunJobResponse is the response body after running a job.
 type RunJobResponse struct {
 	ExecutionID string `json:"execution_id"`
@@ -49,6 +54,7 @@ type ExecutionResponse struct {
 	ID          string     `json:"id"`
 	Status      string     `json:"status"`
 	Attempt     int        `json:"attempt"`
+	ScheduledAt *time.Time `json:"scheduled_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	ExitCode    *int       `json:"exit_code,omitempty"`

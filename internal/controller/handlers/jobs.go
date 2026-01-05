@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
 	"jobplane/pkg/api"
@@ -89,18 +90,45 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional body for scheduling
+	var req api.RunJobRequest
+	// Empty body is allowed, so check errors carefully
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if err != io.EOF {
+				h.httpError(w, "Invalid request body", http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
 	job, err := h.store.GetJobByID(ctx, jobID)
 	if err != nil || job.TenantID != tenantID {
 		h.httpError(w, "Related job not found", http.StatusNotFound)
 		return
 	}
 
+	status := store.ExecutionStatusPending
+	now := time.Now().UTC()
+	scheduledAt := now
+	createdAt := now
+
+	if req.ScheduledAt != nil {
+		if req.ScheduledAt.Before(now) {
+			h.httpError(w, "Scheduled time cannot be in the past", http.StatusBadRequest)
+			return
+		}
+		status = store.ExecutionStatusScheduled
+		scheduledAt = *req.ScheduledAt
+	}
+
 	execution := &store.Execution{
-		ID:        uuid.New(),
-		JobID:     jobID,
-		TenantID:  tenantID,
-		Status:    store.ExecutionStatusPending,
-		CreatedAt: time.Now().UTC(),
+		ID:          uuid.New(),
+		JobID:       jobID,
+		TenantID:    tenantID,
+		Status:      status,
+		ScheduledAt: &scheduledAt,
+		CreatedAt:   createdAt,
 	}
 
 	tx, err := h.store.BeginTx(ctx)
@@ -120,7 +148,7 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	// Serialize the job details into the queue payload so the worker
 	// doesn't need to query the 'jobs' table
 	paylod, _ := json.Marshal(job)
-	if _, err := h.store.Enqueue(ctx, tx, execution.ID, paylod); err != nil {
+	if _, err := h.store.Enqueue(ctx, tx, execution.ID, paylod, scheduledAt); err != nil {
 		h.httpError(w, "Failed to enqueue", http.StatusInternalServerError)
 		return
 	}

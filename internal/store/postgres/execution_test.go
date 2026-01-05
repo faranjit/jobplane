@@ -24,15 +24,16 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	errMsg := ""
 	startedAt := time.Now().Add(-5 * time.Minute)
 	completedAt := time.Now().Add(-4 * time.Minute)
+	now := time.Now()
 
 	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "job_id", "tenant_id", "status", "attempt",
-			"exit_code", "error_message", "created_at", "started_at", "finished_at",
+			"exit_code", "error_message", "scheduled_at", "created_at", "started_at", "finished_at",
 		}).AddRow(
 			executionID, jobID, tenantID, "SUCCEEDED", 1,
-			exitCode, errMsg, time.Now(), startedAt, completedAt,
+			exitCode, errMsg, now, now, startedAt, completedAt,
 		))
 
 	execution, err := store_.GetExecutionByID(ctx, executionID)
@@ -54,6 +55,12 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	}
 	if execution.Attempt != 1 {
 		t.Errorf("got Attempt %d, want 1", execution.Attempt)
+	}
+	if execution.ScheduledAt.IsZero() {
+		t.Errorf("want ScheduledAt %s", now)
+	}
+	if execution.CreatedAt.IsZero() {
+		t.Errorf("want CreatedAt %s", now)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

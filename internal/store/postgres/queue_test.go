@@ -27,12 +27,13 @@ func TestEnqueue_Success(t *testing.T) {
 	executionID := uuid.New()
 	payload := json.RawMessage(`{"key": "value"}`)
 	expectedQueueID := int64(42)
+	visibleAfter := time.Now()
 
 	mock.ExpectQuery(`INSERT INTO execution_queue`).
-		WithArgs(executionID, payload).
+		WithArgs(executionID, payload, visibleAfter).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(expectedQueueID))
 
-	id, err := store.Enqueue(ctx, nil, executionID, payload)
+	id, err := store.Enqueue(ctx, nil, executionID, payload, visibleAfter)
 	if err != nil {
 		t.Fatalf("Enqueue failed: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestEnqueue_ExecutionNotFound(t *testing.T) {
 		WithArgs(executionID, payload).
 		WillReturnError(sql.ErrNoRows)
 
-	_, err := store.Enqueue(ctx, nil, executionID, payload)
+	_, err := store.Enqueue(ctx, nil, executionID, payload, time.Now())
 	if err == nil {
 		t.Error("expected error, got nil")
 	}

@@ -38,6 +38,7 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 		ID:          execution.ID.String(),
 		Status:      string(execution.Status),
 		Attempt:     execution.Attempt,
+		ScheduledAt: execution.ScheduledAt,
 		StartedAt:   execution.StartedAt,
 		CompletedAt: execution.CompletedAt,
 		ExitCode:    execution.ExitCode,

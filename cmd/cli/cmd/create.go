@@ -13,7 +13,7 @@ var createCmd = &cobra.Command{
 	Long: `Create a new job definition (blueprint) that can be run later.
 
 Example:
-  jobctl create --name "my-job" --image "alpine:latest" --command "echo" "hello"
+  jobctl create --name "my-job" --image "alpine:latest" --command "echo", "hello"
   jobctl create --name "python-script" --image "python:3.11" --command "python" "-c" "print('hello')" --timeout 300`,
 	Run: func(cmd *cobra.Command, args []string) {
 		flags := cmd.Flags()

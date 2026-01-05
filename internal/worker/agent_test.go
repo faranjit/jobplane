@@ -47,7 +47,7 @@ type SetVisibleAfterCall struct {
 	VisibleAfter time.Time
 }
 
-func (m *MockQueue) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error) {
+func (m *MockQueue) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error) {
 	return 0, nil
 }
 

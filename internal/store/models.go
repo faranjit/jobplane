@@ -36,6 +36,7 @@ type Execution struct {
 	Attempt      int
 	ExitCode     *int
 	ErrorMessage *string
+	ScheduledAt  *time.Time
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	CompletedAt  *time.Time
@@ -53,6 +54,7 @@ type ExecutionStatus string
 
 const (
 	ExecutionStatusPending   ExecutionStatus = "PENDING"
+	ExecutionStatusScheduled ExecutionStatus = "SCHEDULED"
 	ExecutionStatusRunning   ExecutionStatus = "RUNNING"
 	ExecutionStatusCompleted ExecutionStatus = "SUCCEEDED"
 	ExecutionStatusFailed    ExecutionStatus = "FAILED"

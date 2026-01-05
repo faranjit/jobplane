@@ -21,10 +21,14 @@ const (
 )
 
 // Enqueue adds a job to the execution_queue.
-func (s *Store) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error) {
+func (s *Store) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error) {
+	if visibleAfter.IsZero() {
+		visibleAfter = time.Now()
+	}
+
 	query := `
-		INSERT INTO execution_queue (execution_id, tenant_id, payload)
-		SELECT $1, tenant_id, $2
+		INSERT INTO execution_queue (execution_id, tenant_id, payload, visible_after)
+		SELECT $1, tenant_id, $2, $3
 		FROM executions 
 		WHERE id = $1
 		RETURNING id
@@ -36,7 +40,7 @@ func (s *Store) Enqueue(ctx context.Context, tx store.DBTransaction, executionID
 	}
 
 	var id int64
-	err := executor.QueryRowContext(ctx, query, executionID, payload).Scan(&id)
+	err := executor.QueryRowContext(ctx, query, executionID, payload, visibleAfter).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("failed to enqueue execution %s: %w", executionID, err)
 	}

@@ -76,7 +76,7 @@ func (m *mockStore) CreateExecution(ctx context.Context, tx store.DBTransaction,
 	return m.createExecErr
 }
 
-func (m *mockStore) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage) (int64, error) {
+func (m *mockStore) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error) {
 	return 1, m.enqueueErr
 }
 

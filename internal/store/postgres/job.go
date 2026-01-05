@@ -55,8 +55,8 @@ func (s *Store) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error
 // CreateExecution inserts a new execution row.
 func (s *Store) CreateExecution(ctx context.Context, tx store.DBTransaction, execution *store.Execution) error {
 	query := `
-		INSERT INTO executions (id, job_id, tenant_id, status, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO executions (id, job_id, tenant_id, status, created_at, scheduled_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
 	_, err := tx.ExecContext(ctx, query,
@@ -65,6 +65,7 @@ func (s *Store) CreateExecution(ctx context.Context, tx store.DBTransaction, exe
 		execution.TenantID,
 		execution.Status,
 		execution.CreatedAt,
+		execution.ScheduledAt,
 	)
 	return err
 }
