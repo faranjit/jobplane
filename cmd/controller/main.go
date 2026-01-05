@@ -12,6 +12,7 @@ import (
 
 	"jobplane/internal/config"
 	"jobplane/internal/controller"
+	"jobplane/internal/observability"
 	"jobplane/internal/store/postgres"
 )
 
@@ -30,6 +31,22 @@ func main() {
 		log.Fatalf("Failed to connect to DB: %v", err)
 	}
 	defer store.Close()
+
+	// Tracing
+	collectorAddr := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if collectorAddr == "" {
+		collectorAddr = "localhost:4317" // Default to Jaeger in Docker
+	}
+
+	shutdownTracer, err := observability.Init(ctx, "jobplane-controller", collectorAddr)
+	if err != nil {
+		log.Fatalf("Failed to init tracing: %v", err)
+	}
+	defer func() {
+		if err := shutdownTracer(context.Background()); err != nil {
+			log.Printf("Failed to shutdown tracer: %v", err)
+		}
+	}()
 
 	// Start Server
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)

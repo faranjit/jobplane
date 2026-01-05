@@ -7,6 +7,8 @@ import (
 	"jobplane/internal/controller/middleware"
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Server is the HTTP server for the controller API.
@@ -40,10 +42,12 @@ func New(addr string, store handlers.StoreFactory) *Server {
 	mux.HandleFunc("PUT /internal/executions/{id}/result", h.InternalUpdateResult)
 	mux.HandleFunc("POST /internal/executions/{id}/logs", h.InternalAddLogs)
 
+	handler := otelhttp.NewHandler(mux, "controller-server")
+
 	return &Server{
 		httpServer: &http.Server{
 			Addr:         addr,
-			Handler:      mux,
+			Handler:      handler,
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		},

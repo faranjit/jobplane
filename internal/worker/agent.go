@@ -18,6 +18,10 @@ import (
 	"jobplane/pkg/api"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AgentConfig holds configuration for the worker agent.
@@ -39,6 +43,12 @@ type Agent struct {
 	tenantIDs  []uuid.UUID
 	httpClient *http.Client
 	done       chan struct{}
+}
+
+// Internal struct to unwrap payload
+type executionPayload struct {
+	Job   store.Job              `json:"job"`
+	Trace propagation.MapCarrier `json:"trace"`
 }
 
 // New creates a new worker agent.
@@ -180,14 +190,44 @@ func (a *Agent) Done() <-chan struct{} {
 
 // processItem processes a single execution that has already been dequeued.
 func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.RawMessage) {
-	log.Printf("Processing execution %s", execID)
+	var wrapper executionPayload
+	var traceCtx context.Context
 
 	var jobDef store.Job
-	if err := json.Unmarshal(payload, &jobDef); err != nil {
-		log.Printf("Failed to unmarshal job payload: %v", err)
-		a.queue.Fail(ctx, nil, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
-		return
+	if err := json.Unmarshal(payload, &wrapper); err == nil && wrapper.Job.ID != uuid.Nil {
+		jobDef = wrapper.Job
+
+		// Extract Trace Context
+		if wrapper.Trace != nil {
+			traceCtx = otel.GetTextMapPropagator().Extract(ctx, wrapper.Trace)
+		} else {
+			traceCtx = ctx
+		}
+	} else {
+		// Fallback: Try unmarshaling directly to Job (old format / backward compatibility)
+		if err := json.Unmarshal(payload, &jobDef); err != nil {
+			log.Printf("Failed to unmarshal job payload: %v", err)
+			a.queue.Fail(ctx, nil, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
+			return
+		}
+		traceCtx = ctx
 	}
+
+	// Start Span
+	tracer := otel.Tracer("worker-agent")
+	spanCtx, span := tracer.Start(traceCtx, "process_job",
+		trace.WithAttributes(
+			attribute.String("job.id", jobDef.ID.String()),
+			attribute.String("execution.id", execID.String()),
+			attribute.String("job.name", jobDef.Name),
+			attribute.String("job.image", jobDef.Image),
+			attribute.String("tenant.id", jobDef.TenantID.String()),
+		),
+		trace.WithSpanKind(trace.SpanKindConsumer),
+	)
+	defer span.End()
+
+	log.Printf("Processing execution %s", execID)
 
 	runtimeOpts := runtime.StartOptions{
 		Image:   jobDef.Image,
@@ -208,7 +248,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	// Create execution context with timeout.
 	// This is independent of the worker's poll context - we want the job
 	// to complete even if SIGTERM is received (graceful drain).
-	execContext, cancel := context.WithTimeout(context.Background(), timeout)
+	execContext, cancel := context.WithTimeout(spanCtx, timeout)
 	defer cancel()
 
 	// Start Runtime
@@ -241,6 +281,8 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	wg.Wait()
 
 	if err != nil {
+		span.RecordError(err)
+
 		// Check if this was a timeout
 		if execContext.Err() == context.DeadlineExceeded {
 			log.Printf("Execution %s timed out after %v", execID, timeout)
@@ -251,10 +293,13 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Execution timed out after %v", timeout))
 			return
 		}
+
 		log.Printf("Runtime waiting error for %s: %v", execID, err)
 		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Runtime waiting error: %v", err))
 		return
 	}
+
+	span.SetAttributes(attribute.Int("exit_code", result.ExitCode))
 
 	// Update Queue
 	if result.ExitCode == 0 {
@@ -265,6 +310,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 		errorMessage := fmt.Sprintf("Exit code %d", result.ExitCode)
 		if result.Error != nil {
 			errorMessage = result.Error.Error()
+			span.RecordError(result.Error)
 		}
 		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
 	}

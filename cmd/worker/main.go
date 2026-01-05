@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"jobplane/internal/config"
+	"jobplane/internal/observability"
 	"jobplane/internal/store/postgres"
 	"jobplane/internal/worker"
 	"jobplane/internal/worker/runtime"
@@ -23,6 +24,23 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Tracing
+	// Default to Jaeger in Docker if env var is not set
+	collectorAddr := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if collectorAddr == "" {
+		collectorAddr = "localhost:4317"
+	}
+
+	shutdownTracer, err := observability.Init(ctx, "jobplane-worker", collectorAddr)
+	if err != nil {
+		log.Fatalf("Failed to init tracing: %v", err)
+	}
+	defer func() {
+		if err := shutdownTracer(context.Background()); err != nil {
+			log.Printf("Failed to shutdown tracer: %v", err)
+		}
+	}()
 
 	store, err := postgres.New(ctx, cfg.DatabaseURL)
 	if err != nil {

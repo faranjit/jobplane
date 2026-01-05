@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // CreateJob handles POST /jobs.
@@ -144,11 +146,17 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enqueue
-	// Serialize the job details into the queue payload so the worker
-	// doesn't need to query the 'jobs' table
-	paylod, _ := json.Marshal(job)
-	if _, err := h.store.Enqueue(ctx, tx, execution.ID, paylod, scheduledAt); err != nil {
+	// Extract the trace context from the incoming request
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	payloadMap := map[string]interface{}{
+		"job":   job,
+		"trace": carrier,
+	}
+	payloadBytes, _ := json.Marshal(payloadMap)
+
+	// Enqueue with wrapped payload
+	if _, err := h.store.Enqueue(ctx, tx, execution.ID, payloadBytes, scheduledAt); err != nil {
 		h.httpError(w, "Failed to enqueue", http.StatusInternalServerError)
 		return
 	}
