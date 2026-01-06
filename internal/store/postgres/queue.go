@@ -88,7 +88,6 @@ func (s *Store) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit i
 
 	var items []store.QueueItem
 	var queueIDs []int64
-	var execIDs []uuid.UUID
 
 	for rows.Next() {
 		var queueID int64
@@ -98,7 +97,6 @@ func (s *Store) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit i
 		}
 		items = append(items, item)
 		queueIDs = append(queueIDs, queueID)
-		execIDs = append(execIDs, item.ExecutionID)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -113,19 +111,23 @@ func (s *Store) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit i
 	// Bulk update visibility timeout for all claimed jobs
 	_, err = tx.ExecContext(ctx, `
 		UPDATE execution_queue 
-		SET visible_after = NOW() + ($1 * INTERVAL '1 second')
+		SET attempt = attempt + 1, visible_after = NOW() + ($1 * INTERVAL '1 second')
 		WHERE id = ANY($2)
 	`, VisibilityTimeout.Seconds(), pq.Array(queueIDs))
 	if err != nil {
 		return nil, fmt.Errorf("batch visibility update failed: %w", err)
 	}
 
-	// Bulk update execution status to RUNNING
 	_, err = tx.ExecContext(ctx, `
-		UPDATE executions 
-		SET status = $1, started_at = COALESCE(started_at, NOW()), attempt = attempt + 1
-		WHERE id = ANY($2)
-	`, store.ExecutionStatusRunning, pq.Array(execIDs))
+		UPDATE executions e
+		SET 
+			status = $1, 
+			started_at = COALESCE(e.started_at, NOW()), 
+			attempt = eq.attempt
+		FROM execution_queue eq
+		WHERE eq.id = ANY($2)
+		  AND e.id = eq.execution_id
+	`, store.ExecutionStatusRunning, pq.Array(queueIDs))
 	if err != nil {
 		return nil, fmt.Errorf("batch status update failed: %w", err)
 	}
@@ -212,6 +214,18 @@ func (s *Store) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, exe
 		WHERE execution_id = $2
 	`, visibleAfter, executionID)
 	return err
+}
+
+func (s *Store) Count(ctx context.Context) (int64, error) {
+	var count int64
+	// Count everything in the queue, including invisible (scheduled/backoff) jobs
+	// to see the true backlog size.
+	query := "SELECT COUNT(*) FROM execution_queue"
+	err := s.db.QueryRowContext(ctx, query).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count queue: %w", err)
+	}
+	return count, nil
 }
 
 func (s *Store) getExecutor(tx store.DBTransaction) store.DBTransaction {

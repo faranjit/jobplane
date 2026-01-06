@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,7 +16,18 @@ import (
 	"jobplane/pkg/api"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
+
+// Helper to setup OTel for testing
+func setupMetricsForTest() *metric.ManualReader {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	otel.SetMeterProvider(provider)
+	return reader
+}
 
 func TestCreateJob(t *testing.T) {
 	// Common test data
@@ -245,5 +257,54 @@ func TestRunJob(t *testing.T) {
 				tt.verify(t, mock)
 			}
 		})
+	}
+}
+
+func TestCreateJob_Metrics(t *testing.T) {
+	reader := setupMetricsForTest()
+
+	tenantID := uuid.New()
+	mock := &mockStore{
+		createJobErr: nil,
+	}
+
+	h := New(mock)
+	reqBody := api.CreateJobRequest{Name: "metric-test-job", Image: "alpine"}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(bodyBytes))
+	req = req.WithContext(middleware.NewContextWithTenantID(req.Context(), tenantID))
+	rr := httptest.NewRecorder()
+
+	http.HandlerFunc(h.CreateJob).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Handler failed: %d", rr.Code)
+	}
+
+	// Verify Metric
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Failed to collect metrics: %v", err)
+	}
+
+	found := false
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name == "jobplane.jobs.created_total" {
+				// Check the value
+				if data, ok := m.Data.(metricdata.Sum[int64]); ok {
+					for _, pt := range data.DataPoints {
+						if pt.Value == 1 {
+							found = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if !found {
+		t.Error("Expected metric 'jobplane.jobs.created_total' to be incremented to 1")
 	}
 }

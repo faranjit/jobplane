@@ -16,7 +16,7 @@ import (
 
 // InitTracer initializes the global trace provider.
 // It returns a shutdown function that should be called on app exit.
-func Init(ctx context.Context, serviceName, collectorAddr string) (func(context.Context) error, error) {
+func InitTracer(ctx context.Context, serviceName, collectorAddr string) (func(context.Context) error, error) {
 	// Create OTLP Exporter (connects to Jaeger via gRPC)
 	exporter, err := otlptracegrpc.New(
 		ctx,

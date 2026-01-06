@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -70,6 +72,14 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 	resp := api.CreateJobResponse{
 		JobID: jobID.String(),
 	}
+
+	// Metric: Increment Job Counter
+	fmt.Println("metrics adding")
+	meter := otel.Meter("jobplane-controller")
+	counter, _ := meter.Int64Counter("jobplane.jobs.created_total")
+	counter.Add(ctx, 1)
+	fmt.Println("metrics added")
+
 	h.respondJson(w, http.StatusOK, resp)
 }
 
@@ -165,6 +175,12 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		h.httpError(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
 	}
+
+	meter := otel.Meter("jobplane-controller")
+	counter, _ := meter.Int64Counter("jobplane.executions.created_total",
+		metric.WithDescription("Total number of job executions created"),
+	)
+	counter.Add(ctx, 1)
 
 	h.respondJson(w, http.StatusOK, api.RunJobResponse{ExecutionID: execution.ID.String()})
 }
