@@ -16,6 +16,9 @@ import (
 	"jobplane/internal/worker/runtime"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // MockQueue implements store.Queue for testing.
@@ -77,6 +80,10 @@ func (m *MockQueue) SetVisibleAfter(ctx context.Context, tx store.DBTransaction,
 	defer m.mu.Unlock()
 	m.SetVisibleAfterCalls = append(m.SetVisibleAfterCalls, SetVisibleAfterCall{ExecutionID: executionID, VisibleAfter: visibleAfter})
 	return nil
+}
+
+func (m *MockQueue) Count(ctx context.Context) (int64, error) {
+	return 0, nil
 }
 
 // MockRuntime implements runtime.Runtime for testing.
@@ -831,5 +838,56 @@ func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
 	// No heartbeat should have been called for a fast job
 	if heartbeatCalls != 0 {
 		t.Errorf("expected 0 heartbeat calls for fast job, got %d", heartbeatCalls)
+	}
+}
+
+func TestProcessItem_Metrics(t *testing.T) {
+	// Setup Metrics
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	otel.SetMeterProvider(provider)
+
+	q := &MockQueue{}
+
+	// Mock Runtime that "runs" instantly
+	rt := &MockRuntime{
+		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
+			return &MockHandle{
+				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
+					return runtime.ExitResult{ExitCode: 0}, nil
+				},
+			}, nil
+		},
+	}
+
+	agent := New(q, rt, AgentConfig{}, nil)
+
+	// 3. Create Payload
+	job := store.Job{ID: uuid.New(), Name: "test", Image: "img"}
+	payloadBytes, _ := json.Marshal(job)
+
+	// Run ProcessItem directly (bypassing the loop)
+	agent.processItem(context.Background(), uuid.New(), payloadBytes)
+
+	// Verify Histogram
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Failed to collect metrics: %v", err)
+	}
+
+	found := false
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name == "jobplane.worker.execution_duration_seconds" {
+				if _, ok := m.Data.(metricdata.Histogram[float64]); ok {
+					// just check that some data was recorded
+					found = true
+				}
+			}
+		}
+	}
+
+	if !found {
+		t.Error("Expected metric 'jobplane.worker.execution_duration_seconds' to be recorded")
 	}
 }

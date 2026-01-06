@@ -11,10 +11,10 @@ func TestInit_InvalidEndpoint(t *testing.T) {
 	// because gRPC connection is lazy by default
 	ctx := context.Background()
 
-	shutdown, err := Init(ctx, "test-service", "invalid-endpoint:9999")
+	shutdown, err := InitTracer(ctx, "test-service", "invalid-endpoint:9999")
 	if err != nil {
 		// Some environments may fail immediately, that's also acceptable
-		t.Logf("Init failed as expected in this environment: %v", err)
+		t.Logf("InitTracer failed as expected in this environment: %v", err)
 		return
 	}
 
@@ -35,9 +35,9 @@ func TestInit_ValidServiceName(t *testing.T) {
 	ctx := context.Background()
 
 	// Using localhost which won't connect but won't error on init
-	shutdown, err := Init(ctx, "my-test-service", "localhost:4317")
+	shutdown, err := InitTracer(ctx, "my-test-service", "localhost:4317")
 	if err != nil {
-		t.Logf("Init returned error (may be expected in test environment): %v", err)
+		t.Logf("InitTracer returned error (may be expected in test environment): %v", err)
 		return
 	}
 
@@ -55,9 +55,9 @@ func TestInit_EmptyServiceName(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty service name should still work (just not ideal)
-	shutdown, err := Init(ctx, "", "localhost:4317")
+	shutdown, err := InitTracer(ctx, "", "localhost:4317")
 	if err != nil {
-		t.Logf("Init returned error: %v", err)
+		t.Logf("InitTracer returned error: %v", err)
 		return
 	}
 

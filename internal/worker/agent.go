@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -193,6 +194,8 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	var wrapper executionPayload
 	var traceCtx context.Context
 
+	startTime := time.Now()
+
 	var jobDef store.Job
 	if err := json.Unmarshal(payload, &wrapper); err == nil && wrapper.Job.ID != uuid.Nil {
 		jobDef = wrapper.Job
@@ -248,11 +251,24 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	execContext, cancel := context.WithTimeout(spanCtx, timeout)
 	defer cancel()
 
+	// Metric: Record Duration
+	meter := otel.Meter("jobplane-worker")
+	histogram, _ := meter.Float64Histogram("jobplane.worker.execution_duration_seconds",
+		metric.WithDescription("Duration of job execution in seconds"),
+		metric.WithUnit("s"),
+	)
+	var statusAttr attribute.KeyValue
+
 	// Start Runtime
 	handle, err := a.runtime.Start(execContext, runtimeOpts)
 	if err != nil {
 		log.Printf("Failed to start runtime for %s: %v", execID, err)
 		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
+
+		duration := time.Since(startTime).Seconds()
+		statusAttr = attribute.String("status", "failure")
+		histogram.Record(context.Background(), duration, metric.WithAttributes(statusAttr))
+
 		return
 	}
 
@@ -277,8 +293,12 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	// Wait for logs
 	wg.Wait()
 
+	duration := time.Since(startTime).Seconds()
+
 	if err != nil {
 		span.RecordError(err)
+		statusAttr = attribute.String("status", "failure")
+		histogram.Record(context.Background(), duration, metric.WithAttributes(statusAttr))
 
 		// Check if this was a timeout
 		if execContext.Err() == context.DeadlineExceeded {
@@ -301,6 +321,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	// Update Queue
 	if result.ExitCode == 0 {
 		log.Printf("Execution %s completed successfully", execID)
+		statusAttr = attribute.String("status", "success")
 		a.queue.Complete(context.Background(), nil, execID, 0)
 	} else {
 		log.Printf("Execution %s failed with code %d", execID, result.ExitCode)
@@ -309,8 +330,11 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			errorMessage = result.Error.Error()
 			span.RecordError(result.Error)
 		}
+		statusAttr = attribute.String("status", "failure")
 		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
 	}
+
+	histogram.Record(context.Background(), duration, metric.WithAttributes(statusAttr))
 }
 
 // runHeartbeat refreshes the visibility timeout periodically while a job is executing.

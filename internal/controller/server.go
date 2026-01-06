@@ -17,7 +17,7 @@ type Server struct {
 }
 
 // New creates a new controller server.
-func New(addr string, store handlers.StoreFactory) *Server {
+func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) *Server {
 	h := handlers.New(store)
 	authMW := middleware.AuthMiddleware(store)
 
@@ -41,6 +41,11 @@ func New(addr string, store handlers.StoreFactory) *Server {
 	mux.HandleFunc("PUT /internal/executions/{id}/heartbeat", h.InternalHeartbeat)
 	mux.HandleFunc("PUT /internal/executions/{id}/result", h.InternalUpdateResult)
 	mux.HandleFunc("POST /internal/executions/{id}/logs", h.InternalAddLogs)
+
+	// Metrics Endpoint
+	if metricsHandler != nil {
+		mux.Handle("GET /metrics", metricsHandler)
+	}
 
 	handler := otelhttp.NewHandler(mux, "controller-server")
 

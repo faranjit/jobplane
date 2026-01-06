@@ -28,6 +28,9 @@ type Queue interface {
 
 	// SetVisibleAfter extends the visibility timeout (heartbeat).
 	SetVisibleAfter(ctx context.Context, tx DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error
+
+	// Count tracks count of items in queue
+	Count(ctx context.Context) (int64, error)
 }
 
 // QueueItem represents a dequeued execution from the queue.

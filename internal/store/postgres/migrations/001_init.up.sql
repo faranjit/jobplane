@@ -41,7 +41,7 @@ CREATE TABLE execution_queue (
     execution_id UUID UNIQUE REFERENCES executions(id),
     tenant_id UUID REFERENCES tenants(id),
     payload JSONB NOT NULL,
-    attempt INT DEFAULT 1,
+    attempt INT DEFAULT 0,
     visible_after TIMESTAMP DEFAULT NOW(), -- For retry/backoff
     created_at TIMESTAMP DEFAULT NOW()
 );

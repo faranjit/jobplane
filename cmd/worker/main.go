@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,7 +33,7 @@ func main() {
 	defer cancel()
 
 	// Tracing
-	shutdownTracer, err := observability.Init(ctx, "jobplane-worker", cfg.OTELEndpoint)
+	shutdownTracer, err := observability.InitTracer(ctx, "jobplane-worker", cfg.OTELEndpoint)
 	if err != nil {
 		log.Fatalf("Failed to init tracing: %v", err)
 	}
@@ -76,6 +77,27 @@ func main() {
 
 	log.Printf("Worker started with concurrency %d", cfg.WorkerConcurrency)
 	go agent.Run(ctx)
+
+	// Metrics
+	metricsHandler, shutdownMetrics, err := observability.InitMetrics()
+	if err != nil {
+		log.Fatalf("Failed to init metrics: %v", err)
+	}
+	defer func() {
+		if err := shutdownMetrics(context.Background()); err != nil {
+			log.Printf("Failed to shutdown metrics: %v", err)
+		}
+	}()
+
+	// Start a dedicated metrics server on port 6162
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metricsHandler)
+		log.Println("Worker metrics listening on :6162")
+		if err := http.ListenAndServe(":6162", mux); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

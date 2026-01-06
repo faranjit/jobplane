@@ -15,6 +15,9 @@ import (
 	"jobplane/internal/controller"
 	"jobplane/internal/observability"
 	"jobplane/internal/store/postgres"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -48,7 +51,7 @@ func main() {
 	}
 
 	// Tracing
-	shutdownTracer, err := observability.Init(ctx, "jobplane-controller", cfg.OTELEndpoint)
+	shutdownTracer, err := observability.InitTracer(ctx, "jobplane-controller", cfg.OTELEndpoint)
 	if err != nil {
 		log.Fatalf("Failed to init tracing: %v", err)
 	}
@@ -58,9 +61,38 @@ func main() {
 		}
 	}()
 
+	// Metrics
+	metricsHandler, shutdownMetrics, err := observability.InitMetrics()
+	if err != nil {
+		log.Fatalf("Failed to init metrics: %v", err)
+	}
+	defer func() {
+		if err := shutdownMetrics(context.Background()); err != nil {
+			log.Printf("Failed to shutdown metrics: %v", err)
+		}
+	}()
+
+	// Use an Observable Gauge (Async) that queries the DB only when scraped.
+	meter := otel.Meter("jobplane-controller")
+	_, err = meter.Int64ObservableGauge("jobplane.queue.depth",
+		metric.WithDescription("Current number of jobs in the queue"),
+		metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
+			count, err := store.Count(ctx)
+			if err != nil {
+				log.Printf("Failed to count queue depth: %v", err)
+				return nil // Don't crash metrics scrape on DB error
+			}
+			obs.Observe(count)
+			return nil
+		}),
+	)
+	if err != nil {
+		log.Printf("Failed to register queue depth metric: %v", err)
+	}
+
 	// Start Server
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
-	srv := controller.New(addr, store)
+	srv := controller.New(addr, store, metricsHandler)
 
 	go func() {
 		log.Printf("JobPlane Controller starting on %s", addr)

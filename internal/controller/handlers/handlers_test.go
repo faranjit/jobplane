@@ -129,3 +129,7 @@ func (m *mockStore) Complete(ctx context.Context, tx store.DBTransaction, execut
 func (m *mockStore) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode *int, errMsg string) error {
 	return m.failErr
 }
+
+func (m *mockStore) Count(ctx context.Context) (int64, error) {
+	return 0, nil
+}
