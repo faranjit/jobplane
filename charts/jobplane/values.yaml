@@ -1,0 +1,131 @@
+# Default values for jobplane
+
+# -- Image configuration
+image:
+  repository: ghcr.io/faranjit/jobplane
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default: Chart appVersion)
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Controller configuration
+controller:
+  # -- Number of controller replicas
+  replicaCount: 1
+
+  # -- HTTP port for the controller API
+  httpPort: 6161
+
+  # -- Run database migrations on startup
+  migrate: true
+
+  # -- Resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # -- Pod annotations
+  podAnnotations: {}
+
+  # -- Node selector
+  nodeSelector: {}
+
+  # -- Tolerations
+  tolerations: []
+
+  # -- Affinity rules
+  affinity: {}
+
+# -- Worker configuration
+worker:
+  # -- Number of worker replicas
+  replicaCount: 1
+
+  # -- Number of concurrent job executions per worker
+  concurrency: 1
+
+  # -- Interval between queue polls when idle
+  pollInterval: "1s"
+
+  # -- Maximum backoff when queue is empty
+  maxBackoff: "30s"
+
+  # -- Heartbeat interval during job execution
+  heartbeatInterval: "2m"
+
+  # -- How long to extend visibility timeout on each heartbeat
+  visibilityExtension: "5m"
+
+  # -- Runtime type: "docker" or "exec"
+  runtime: "exec"
+
+  # -- Work directory for exec runtime
+  runtimeWorkDir: "/tmp/jobplane"
+
+  # -- Metrics port for Prometheus scraping
+  metricsPort: 6162
+
+  # -- Resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+  # -- Pod annotations
+  podAnnotations: {}
+
+  # -- Node selector
+  nodeSelector: {}
+
+  # -- Tolerations
+  tolerations: []
+
+  # -- Affinity rules
+  affinity: {}
+
+# -- Database configuration
+database:
+  # -- PostgreSQL host
+  host: ""
+  # -- PostgreSQL port
+  port: 5432
+  # -- Database name
+  name: "jobplane"
+  # -- Database user
+  user: "postgres"
+  # -- Database password (ignored if existingSecret is set)
+  password: ""
+  # -- Use an existing secret for database credentials
+  # Must contain key 'DATABASE_URL'
+  existingSecret: ""
+  # -- SSL mode for database connection
+  sslMode: "disable"
+
+# -- Observability configuration
+observability:
+  # -- OpenTelemetry collector endpoint
+  otelEndpoint: "localhost:4317"
+
+# -- ServiceAccount configuration
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- Name of the service account (generated if not set)
+  name: ""
+
+# -- Service configuration
+service:
+  # -- Service type for controller
+  type: ClusterIP

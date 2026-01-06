@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jobplane.fullname" . }}-worker
+  labels:
+    {{- include "jobplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "jobplane.worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.worker.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "jobplane.worker.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "jobplane.serviceAccountName" . }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}-worker:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.metricsPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "jobplane.fullname" . }}-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | default (printf "%s-db" (include "jobplane.fullname" .)) }}
+                  key: DATABASE_URL
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

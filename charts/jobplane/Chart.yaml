@@ -1,0 +1,23 @@
+apiVersion: v2
+name: jobplane
+description: A multi-tenant distributed job execution platform with control plane / data plane separation
+type: application
+
+# Chart version - increment on chart changes
+version: 0.1.0
+
+# Application version - matches the jobplane release
+appVersion: "0.1.0"
+
+keywords:
+  - job
+  - execution
+  - queue
+  - distributed
+
+home: https://github.com/faranjit/jobplane
+sources:
+  - https://github.com/faranjit/jobplane
+
+maintainers:
+  - name: faranjit

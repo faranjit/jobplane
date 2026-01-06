@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "jobplane.fullname" . }}-controller
+  labels:
+    {{- include "jobplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.controller.httpPort }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "jobplane.controller.selectorLabels" . | nindent 4 }}
