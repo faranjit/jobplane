@@ -2,7 +2,7 @@
 
 A multi-tenant distributed job execution platform with explicit **control plane / data plane** separation.
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-336791?style=flat&logo=postgresql)](https://postgresql.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -65,7 +65,7 @@ jobplane/
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.25+
 - PostgreSQL 16+
 - Docker (optional, for container runtime)
 

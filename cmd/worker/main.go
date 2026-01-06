@@ -55,6 +55,18 @@ func main() {
 	case "exec":
 		rt = runtime.NewExecRuntime(cfg.RuntimeWorkDir)
 		log.Printf("Using exec runtime (workdir: %s)", cfg.RuntimeWorkDir)
+	case "kubernetes":
+		k8sRT, err := runtime.NewKubernetesRuntime(runtime.KubernetesConfig{
+			Namespace:          cfg.KubernetesNamespace,
+			ServiceAccount:     cfg.KubernetesServiceAccount,
+			DefaultCPULimit:    cfg.KubernetesCPULimit,
+			DefaultMemoryLimit: cfg.KubernetesMemoryLimit,
+		})
+		if err != nil {
+			log.Fatalf("Failed to create Kubernetes runtime: %v", err)
+		}
+		rt = k8sRT
+		log.Printf("Using kubernetes runtime (namespace: %s)", cfg.KubernetesNamespace)
 	case "docker":
 		fallthrough
 	default:

@@ -35,11 +35,17 @@ type Config struct {
 	// URL of the Control Plane (e.g., "http://localhost:6161")
 	ControllerURL string `mapstructure:"controller_url"`
 
-	// Runtime type: "docker" (default) or "exec"
+	// Runtime type: "docker" (default), "exec", or "kubernetes"
 	Runtime string `mapstructure:"runtime"`
 
 	// WorkDir for exec runtime (optional, defaults to system temp)
 	RuntimeWorkDir string `mapstructure:"runtime_workdir"`
+
+	// Kubernetes runtime configuration
+	KubernetesNamespace      string `mapstructure:"kubernetes_namespace"`
+	KubernetesServiceAccount string `mapstructure:"kubernetes_service_account"`
+	KubernetesCPULimit       string `mapstructure:"kubernetes_cpu_limit"`
+	KubernetesMemoryLimit    string `mapstructure:"kubernetes_memory_limit"`
 
 	// OpenTelemetry collector endpoint
 	OTELEndpoint string `mapstructure:"otel_endpoint"`
@@ -92,6 +98,10 @@ func Load(configPath string) (*Config, error) {
 	_ = v.BindEnv("controller_url", "CONTROLLER_URL")
 	_ = v.BindEnv("runtime", "RUNTIME")
 	_ = v.BindEnv("runtime_workdir", "RUNTIME_WORKDIR")
+	_ = v.BindEnv("kubernetes_namespace", "KUBERNETES_NAMESPACE")
+	_ = v.BindEnv("kubernetes_service_account", "KUBERNETES_SERVICE_ACCOUNT")
+	_ = v.BindEnv("kubernetes_cpu_limit", "KUBERNETES_CPU_LIMIT")
+	_ = v.BindEnv("kubernetes_memory_limit", "KUBERNETES_MEMORY_LIMIT")
 	_ = v.BindEnv("otel_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT")
 
 	// Validate required fields
@@ -106,8 +116,8 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Validate runtime
-	if cfg.Runtime != "docker" && cfg.Runtime != "exec" {
-		return nil, fmt.Errorf("invalid runtime: must be 'docker' or 'exec', got '%s'", cfg.Runtime)
+	if cfg.Runtime != "docker" && cfg.Runtime != "exec" && cfg.Runtime != "kubernetes" {
+		return nil, fmt.Errorf("invalid runtime: must be 'docker', 'exec', or 'kubernetes', got '%s'", cfg.Runtime)
 	}
 
 	return cfg, nil
