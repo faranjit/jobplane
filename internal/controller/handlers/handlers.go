@@ -17,7 +17,6 @@ type StoreFactory interface {
 	store.JobStore
 	store.TenantStore
 	store.Queue
-	store.UserStore
 }
 
 // Handlers holds all HTTP handlers and their dependencies.
