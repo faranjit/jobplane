@@ -57,6 +57,7 @@ type mockStore struct {
 	capturedAfterID      int64
 	capturedLimit        int
 	capturedVisibleAfter time.Time
+	capturedPriority     int
 }
 
 func (m *mockStore) BeginTx(ctx context.Context) (store.Tx, error) {
@@ -79,6 +80,7 @@ func (m *mockStore) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, e
 }
 
 func (m *mockStore) CreateExecution(ctx context.Context, tx store.DBTransaction, execution *store.Execution) error {
+	m.capturedPriority = execution.Priority
 	return m.createExecErr
 }
 

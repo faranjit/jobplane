@@ -15,14 +15,16 @@ var submitCmd = &cobra.Command{
 This is a convenience command that combines 'create' and 'run' into a single step.
 
 Example:
-  jobctl submit --name "my-job" --image "alpine:latest" --command "echo,hello"
-  jobctl submit --name "python-script" --image "python:3.11" --command "python,-c,print('hello')" --timeout 300`,
+  jobctl submit --name "my-job" --image "alpine:latest" --command "echo", "hello"
+  jobctl submit --name "python-script" --image "python:3.11" --command "python", "-c", "print('hello')" --timeout 300
+  jobctl submit --name "urgent" --image "alpine" --command "echo,urgent" --priority 50`,
 	Run: func(cmd *cobra.Command, args []string) {
 		flags := cmd.Flags()
 		name, _ := flags.GetString("name")
 		image, _ := flags.GetString("image")
 		command, _ := flags.GetStringSlice("command")
 		timeout, _ := flags.GetInt("timeout")
+		priority, _ := flags.GetInt("priority")
 
 		url := viper.GetString("url")
 		token := viper.GetString("token")
@@ -55,6 +57,7 @@ Example:
 			Image:          image,
 			Command:        command,
 			DefaultTimeout: timeout,
+			Priority:       priority,
 		}
 
 		createResult, err := client.CreateJob(createReq)
@@ -89,6 +92,7 @@ func init() {
 	flags.StringP("image", "i", "", "Container image or 'ignored' for exec runtime (required)")
 	flags.StringSliceP("command", "c", []string{}, "Command to execute (required)")
 	flags.Int("timeout", 0, "Default timeout in seconds (optional)")
+	flags.IntP("priority", "p", 0, "Job priority (higher is more urgent)")
 
 	rootCmd.AddCommand(submitCmd)
 }

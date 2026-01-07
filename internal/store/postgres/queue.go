@@ -27,8 +27,8 @@ func (s *Store) Enqueue(ctx context.Context, tx store.DBTransaction, executionID
 	}
 
 	query := `
-		INSERT INTO execution_queue (execution_id, tenant_id, payload, visible_after)
-		SELECT $1, tenant_id, $2, $3
+		INSERT INTO execution_queue (execution_id, tenant_id, payload, priority, visible_after)
+		SELECT $1, tenant_id, $2, priority, $3
 		FROM executions 
 		WHERE id = $1
 		RETURNING id
@@ -75,7 +75,7 @@ func (s *Store) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit i
 		SELECT id, execution_id, payload
 		FROM execution_queue
 		%s
-		ORDER BY created_at ASC
+		ORDER BY priority DESC, created_at ASC
 		FOR UPDATE SKIP LOCKED
 		LIMIT $1
 	`, whereClause)

@@ -47,6 +47,7 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		Image:          req.Image,
 		Command:        req.Command,
 		DefaultTimeout: req.DefaultTimeout,
+		Priority:       req.Priority,
 		CreatedAt:      time.Now().UTC(),
 	}
 
@@ -139,6 +140,7 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		JobID:       jobID,
 		TenantID:    tenantID,
 		Status:      status,
+		Priority:    job.Priority,
 		ScheduledAt: &scheduledAt,
 		CreatedAt:   createdAt,
 	}

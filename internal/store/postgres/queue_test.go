@@ -114,6 +114,42 @@ func TestDequeueBatch_Success(t *testing.T) {
 	}
 }
 
+func TestDequeueBatch_PriorityQueryStructure(t *testing.T) {
+	// We use sqlmock NOT to test sorting, but to test that we generated the correct SQL.
+	store, mock := newMockStore(t)
+	defer store.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+
+	// Verify that the generated SQL explicitly includes "ORDER BY priority DESC"
+	// and "created_at ASC". This catches regression if someone deletes the sorting logic.
+	mock.ExpectBegin()
+	// SELECT id, execution_id, payload FROM execution_queue WHERE visible_after <= NOW() AND tenant_id = ANY($2) ORDER BY priority DESC, created_at ASC FOR UPDATE SKIP LOCKED LIMIT $1
+	mock.ExpectQuery(`SELECT id, execution_id, payload FROM execution_queue .* ORDER BY priority DESC, created_at ASC FOR UPDATE SKIP LOCKED .*`).
+		WithArgs(1, sqlmock.AnyArg()). // Limit, TenantID array
+		WillReturnRows(sqlmock.NewRows([]string{"id", "execution_id", "payload"}).
+			AddRow(100, uuid.New(), []byte("{}"))) // Mock returns dummy data
+
+	// Mock the subsequent updates (attempt count sync)
+	mock.ExpectExec(`UPDATE execution_queue`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE executions`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	items, err := store.DequeueBatch(ctx, []uuid.UUID{tenantID}, 1)
+
+	if err != nil {
+		t.Fatalf("DequeueBatch failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Errorf("Expected 1 item, got %d", len(items))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Unfulfilled expectations: %v", err)
+	}
+}
+
 func TestDequeueBatch_EmptyQueue(t *testing.T) {
 	store, mock := newMockStore(t)
 	defer store.db.Close()

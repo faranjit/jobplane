@@ -131,6 +131,7 @@ func TestRunJob(t *testing.T) {
 		TenantID: tenantID, // Matches request tenant
 		Name:     "test-job",
 		Image:    "alpine",
+		Priority: 61,
 	}
 
 	// scheduled time for checking
@@ -158,6 +159,9 @@ func TestRunJob(t *testing.T) {
 				// Should be roughly now
 				if time.Since(m.capturedVisibleAfter) > 5*time.Second {
 					t.Error("Expected immediate execution (visibleAfter ~ Now)")
+				}
+				if m.capturedPriority != 61 {
+					t.Errorf("Expected priority 61, but got %d", m.capturedPriority)
 				}
 			},
 		},

@@ -23,6 +23,7 @@ type Job struct {
 	Image          string // Container image to run
 	Command        []string
 	DefaultTimeout int
+	Priority       int
 	CreatedAt      time.Time
 }
 
@@ -33,6 +34,7 @@ type Execution struct {
 	JobID        uuid.UUID
 	TenantID     uuid.UUID
 	Status       ExecutionStatus
+	Priority     int
 	Attempt      int
 	ExitCode     *int
 	ErrorMessage *string

@@ -239,6 +239,46 @@ func TestSubmitCommand_WithTimeout(t *testing.T) {
 	}
 }
 
+func TestSubmitCommand_WithPriority(t *testing.T) {
+	resetViper()
+
+	var capturedPriority int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/jobs" {
+			var reqBody map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&reqBody)
+			if timeout, ok := reqBody["priority"]; ok {
+				capturedPriority = int(timeout.(float64))
+			}
+
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"job_id": "job-timeout"})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"execution_id": "exec-timeout"})
+	}))
+	defer server.Close()
+
+	viper.Set("url", server.URL)
+	viper.Set("token", "test-token")
+
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stdout)
+	rootCmd.SetArgs([]string{"submit", "--name", "timeout-job", "--image", "alpine", "--command", "sleep,10", "-p", "61"})
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedPriority != 61 {
+		t.Errorf("expected priority=61, got %d", capturedPriority)
+	}
+}
+
 func TestSubmitCommand_UnauthorizedError(t *testing.T) {
 	resetViper()
 

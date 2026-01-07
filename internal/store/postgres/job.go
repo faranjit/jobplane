@@ -12,8 +12,8 @@ import (
 // It converts the command slice into a JSON array for storage.
 func (s *Store) CreateJob(ctx context.Context, tx store.DBTransaction, job *store.Job) error {
 	query := `
-		INSERT INTO jobs (id, tenant_id, name, image, default_command, default_timeout, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO jobs (id, tenant_id, name, image, default_command, default_timeout, priority, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	cmdJson, err := json.Marshal(job.Command)
 	if err != nil {
@@ -27,6 +27,7 @@ func (s *Store) CreateJob(ctx context.Context, tx store.DBTransaction, job *stor
 		job.Image,
 		cmdJson,
 		job.DefaultTimeout,
+		job.Priority,
 		job.CreatedAt,
 	)
 	return err
@@ -38,7 +39,7 @@ func (s *Store) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error
 	var job store.Job
 	var cmdJSON []byte
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&job.ID, &job.TenantID, &job.Name, &job.Image, &cmdJSON, &job.DefaultTimeout, &job.CreatedAt)
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&job.ID, &job.TenantID, &job.Name, &job.Image, &cmdJSON, &job.DefaultTimeout, &job.Priority, &job.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +56,8 @@ func (s *Store) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error
 // CreateExecution inserts a new execution row.
 func (s *Store) CreateExecution(ctx context.Context, tx store.DBTransaction, execution *store.Execution) error {
 	query := `
-		INSERT INTO executions (id, job_id, tenant_id, status, created_at, scheduled_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO executions (id, job_id, tenant_id, status, priority, created_at, scheduled_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	_, err := tx.ExecContext(ctx, query,
@@ -64,6 +65,7 @@ func (s *Store) CreateExecution(ctx context.Context, tx store.DBTransaction, exe
 		execution.JobID,
 		execution.TenantID,
 		execution.Status,
+		execution.Priority,
 		execution.CreatedAt,
 		execution.ScheduledAt,
 	)

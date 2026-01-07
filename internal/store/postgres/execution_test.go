@@ -13,8 +13,8 @@ import (
 )
 
 func TestGetExecutionByID_Success(t *testing.T) {
-	store_, mock := newMockStore(t)
-	defer store_.db.Close()
+	s, mock := newMockStore(t)
+	defer s.db.Close()
 
 	ctx := context.Background()
 	executionID := uuid.New()
@@ -29,14 +29,14 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "job_id", "tenant_id", "status", "attempt",
+			"id", "job_id", "tenant_id", "status", "priority", "attempt",
 			"exit_code", "error_message", "scheduled_at", "created_at", "started_at", "finished_at",
 		}).AddRow(
-			executionID, jobID, tenantID, "SUCCEEDED", 1,
+			executionID, jobID, tenantID, "SUCCEEDED", 61, 1,
 			exitCode, errMsg, now, now, startedAt, completedAt,
 		))
 
-	execution, err := store_.GetExecutionByID(ctx, executionID)
+	execution, err := s.GetExecutionByID(ctx, executionID)
 	if err != nil {
 		t.Fatalf("GetExecutionByID failed: %v", err)
 	}
@@ -62,6 +62,9 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	if execution.CreatedAt.IsZero() {
 		t.Errorf("want CreatedAt %s", now)
 	}
+	if execution.Priority != 61 {
+		t.Errorf("got Priority %d, want 61", execution.Priority)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled expectations: %v", err)
@@ -69,8 +72,8 @@ func TestGetExecutionByID_Success(t *testing.T) {
 }
 
 func TestGetExecutionByID_NotFound(t *testing.T) {
-	store_, mock := newMockStore(t)
-	defer store_.db.Close()
+	s, mock := newMockStore(t)
+	defer s.db.Close()
 
 	ctx := context.Background()
 	executionID := uuid.New()
@@ -79,7 +82,7 @@ func TestGetExecutionByID_NotFound(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnError(sql.ErrNoRows)
 
-	_, err := store_.GetExecutionByID(ctx, executionID)
+	_, err := s.GetExecutionByID(ctx, executionID)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}
@@ -89,8 +92,8 @@ func TestGetExecutionByID_NotFound(t *testing.T) {
 }
 
 func TestGetExecutionByID_DatabaseError(t *testing.T) {
-	store_, mock := newMockStore(t)
-	defer store_.db.Close()
+	s, mock := newMockStore(t)
+	defer s.db.Close()
 
 	ctx := context.Background()
 	executionID := uuid.New()
@@ -99,7 +102,7 @@ func TestGetExecutionByID_DatabaseError(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnError(sql.ErrConnDone)
 
-	_, err := store_.GetExecutionByID(ctx, executionID)
+	_, err := s.GetExecutionByID(ctx, executionID)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}

@@ -22,6 +22,7 @@ type CreateJobRequest struct {
 	Image          string   `json:"image"`
 	Command        []string `json:"command,omitempty"`
 	DefaultTimeout int      `json:"default_timeout,omitempty"`
+	Priority       int      `json:"priority,omitempty"`
 }
 
 // CreateJobResponse is the response body after submitting a job.

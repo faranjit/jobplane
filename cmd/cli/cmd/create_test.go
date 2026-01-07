@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,6 +104,41 @@ func TestCreateCommand_WithTimeout(t *testing.T) {
 
 	if capturedTimeout != 300 {
 		t.Errorf("expected timeout=300, got %v", capturedTimeout)
+	}
+}
+
+func TestCreateCommand_WithPriority(t *testing.T) {
+	resetViper()
+
+	var capturedPriority int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&reqBody)
+		if priority, ok := reqBody["priority"]; ok {
+			fmt.Println(priority)
+			capturedPriority = int(priority.(float64))
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"job_id": "job-456"})
+	}))
+	defer server.Close()
+
+	viper.Set("url", server.URL)
+	viper.Set("token", "test-token")
+
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stdout)
+	rootCmd.SetArgs([]string{"create", "--name", "priority-job", "--image", "alpine", "--command", "sleep,10", "--priority", "61"})
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedPriority != 61 {
+		t.Errorf("expected priority=61, got %d", capturedPriority)
 	}
 }
 

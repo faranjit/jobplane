@@ -17,6 +17,7 @@ CREATE TABLE jobs (
     image TEXT NOT NULL,
     default_command JSONB,
     default_timeout INT DEFAULT 300, -- 5 mins
+    priority INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -26,6 +27,7 @@ CREATE TABLE executions (
     job_id UUID REFERENCES jobs(id),
     tenant_id UUID REFERENCES tenants(id),
     status TEXT CHECK (status IN ('PENDING', 'SCHEDULED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')),
+    priority INT NOT NULL DEFAULT 0,
     attempt INT DEFAULT 0,
     exit_code INT,
     error_message TEXT,
@@ -41,6 +43,7 @@ CREATE TABLE execution_queue (
     execution_id UUID UNIQUE REFERENCES executions(id),
     tenant_id UUID REFERENCES tenants(id),
     payload JSONB NOT NULL,
+    priority INT NOT NULL DEFAULT 0,
     attempt INT DEFAULT 0,
     visible_after TIMESTAMP DEFAULT NOW(), -- For retry/backoff
     created_at TIMESTAMP DEFAULT NOW()
@@ -54,16 +57,16 @@ CREATE TABLE execution_logs (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Primary dequeue index: covers WHERE visible_after <= NOW() ORDER BY created_at
+-- Primary dequeue index: covers WHERE visible_after <= NOW() ORDER BY priority DESC, created_at ASC
 -- This index allows PostgreSQL to:
 -- 1. Use an index scan to filter visible_after <= NOW()
 -- 2. Return rows already sorted by created_at (no extra sort step)
-CREATE INDEX idx_queue_dequeue ON execution_queue (visible_after, created_at)
+CREATE INDEX idx_queue_dequeue ON execution_queue (priority DESC, created_at ASC, visible_after)
 WHERE visible_after IS NOT NULL;
 
 -- Tenant-filtered dequeue index: for when workers are assigned to specific tenants
--- Covers: WHERE visible_after <= NOW() AND tenant_id = ANY(...) ORDER BY created_at
-CREATE INDEX idx_queue_tenant_dequeue ON execution_queue (tenant_id, visible_after, created_at)
+-- Covers: WHERE tenant_id = ? AND visible_after <= NOW() ORDER BY priority DESC, created_at ASC
+CREATE INDEX idx_queue_tenant_dequeue ON execution_queue (tenant_id, priority DESC, created_at ASC, visible_after)
 WHERE visible_after IS NOT NULL;
 
 -- Index by execution time

@@ -14,13 +14,15 @@ var createCmd = &cobra.Command{
 
 Example:
   jobctl create --name "my-job" --image "alpine:latest" --command "echo", "hello"
-  jobctl create --name "python-script" --image "python:3.11" --command "python" "-c" "print('hello')" --timeout 300`,
+  jobctl create --name "python-script" --image "python:3.11" --command "python", "-c", "print('hello')" --timeout 300
+  jobctl create --name "urgent-job" --image "alpine" --command "echo", "high" --priority 100`,
 	Run: func(cmd *cobra.Command, args []string) {
 		flags := cmd.Flags()
 		name, _ := flags.GetString("name")
 		image, _ := flags.GetString("image")
 		command, _ := flags.GetStringSlice("command")
 		timeout, _ := flags.GetInt("timeout")
+		priority, _ := flags.GetInt("priority")
 
 		url := viper.GetString("url")
 		token := viper.GetString("token")
@@ -51,6 +53,7 @@ Example:
 			Image:          image,
 			Command:        command,
 			DefaultTimeout: timeout,
+			Priority:       priority,
 		}
 
 		result, err := client.CreateJob(req)
@@ -73,6 +76,7 @@ func init() {
 	flags.StringP("image", "i", "", "Container image or 'ignored' for exec runtime (required)")
 	flags.StringSliceP("command", "c", []string{}, "Command to execute (required)")
 	flags.Int("timeout", 0, "Default timeout in seconds (optional)")
+	flags.IntP("priority", "p", 0, "Job priority (higher is more urgent)")
 
 	rootCmd.AddCommand(createCmd)
 }
