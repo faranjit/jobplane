@@ -333,7 +333,12 @@ func TestFail_PermanentFailure(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnRows(sqlmock.NewRows([]string{"attempt"}).AddRow(MaxRetries + 1))
 
-	// Expect permanent failure path
+	// Insert into DLQ first
+	mock.ExpectExec(`INSERT INTO execution_dlq`).
+		WithArgs(errMsg, executionID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// Then delete from queue
 	mock.ExpectExec(`DELETE FROM execution_queue`).
 		WithArgs(executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -366,7 +371,12 @@ func TestFail_JobNotInQueue(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnError(sql.ErrNoRows)
 
-	// Treat as permanent failure
+	// Insert into DLQ first
+	mock.ExpectExec(`INSERT INTO execution_dlq`).
+		WithArgs(errMsg, executionID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// Treat as permanent failure - delete from queue
 	mock.ExpectExec(`DELETE FROM execution_queue`).
 		WithArgs(executionID).
 		WillReturnResult(sqlmock.NewResult(0, 0))

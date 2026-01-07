@@ -53,3 +53,11 @@ type JobStore interface {
 	// GetExecutionLogs retrieves all logs for an execution, ordered by time.
 	GetExecutionLogs(ctx context.Context, executionID uuid.UUID, afterID int64, limit int) ([]LogEntry, error)
 }
+
+type UserStore interface {
+	// ListDLQ lists the DLQ entries for a tenant.
+	ListDLQ(ctx context.Context, tenantID uuid.UUID, limit, offset int) ([]DLQEntry, error)
+
+	// RetryFromDLQ retries an execution from the DLQ.
+	RetryFromDLQ(ctx context.Context, executionID uuid.UUID) (newExecutionID uuid.UUID, err error)
+}

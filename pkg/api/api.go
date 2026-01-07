@@ -88,6 +88,23 @@ type GetLogsResponse struct {
 	Logs []LogEntry `json:"logs"`
 }
 
+// DLQExecutionResponse represents a DLQ execution.
+type DLQExecutionResponse struct {
+	ID           int64      `json:"id"`
+	ExecutionID  string     `json:"execution_id"`
+	JobID        string     `json:"job_id"`
+	JobName      string     `json:"job_name"`
+	Priority     int        `json:"priority"`
+	ErrorMessage *string    `json:"error_message"`
+	Attempts     int        `json:"attempts"`
+	FailedAt     *time.Time `json:"failed_at"`
+}
+
+// RetryDQLExecutionResponse represents a retry response for a DLQ execution.
+type RetryDQLExecutionResponse struct {
+	NewExecutionID string `json:"new_execution_id"`
+}
+
 // Priority levels for job execution
 const (
 	PriorityLow      = 0

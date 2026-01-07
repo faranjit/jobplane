@@ -191,6 +191,17 @@ func (s *Store) Fail(ctx context.Context, tx store.DBTransaction, executionID uu
 		return err
 	}
 
+	// move the execution to DLQ
+	_, err = executor.ExecContext(ctx,
+		`INSERT INTO execution_dlq (execution_id, tenant_id, payload, error_message, attempts, failed_at) 
+			SELECT execution_id, tenant_id, payload, $1, attempts, NOW() 
+			FROM execution_queue WHERE execution_id = $2`,
+		errMsg, executionID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to move failed job to DLQ: %w", err)
+	}
+
 	// permanent failure
 	_, err = executor.ExecContext(ctx, "DELETE FROM execution_queue WHERE execution_id = $1", executionID)
 	if err != nil {
