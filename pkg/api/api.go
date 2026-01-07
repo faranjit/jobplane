@@ -22,7 +22,8 @@ type CreateJobRequest struct {
 	Image          string   `json:"image"`
 	Command        []string `json:"command,omitempty"`
 	DefaultTimeout int      `json:"default_timeout,omitempty"`
-	Priority       int      `json:"priority,omitempty"`
+	// Priority must be between 0 and 100
+	Priority int `json:"priority,omitempty"`
 }
 
 // CreateJobResponse is the response body after submitting a job.
@@ -54,6 +55,7 @@ type JobStatusResponse struct {
 type ExecutionResponse struct {
 	ID          string     `json:"id"`
 	Status      string     `json:"status"`
+	Priority    int        `json:"priority"`
 	Attempt     int        `json:"attempt"`
 	ScheduledAt *time.Time `json:"scheduled_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
@@ -85,3 +87,14 @@ type LogEntry struct {
 type GetLogsResponse struct {
 	Logs []LogEntry `json:"logs"`
 }
+
+// Priority levels for job execution
+const (
+	PriorityLow      = 0
+	PriorityNormal   = 50
+	PriorityHigh     = 75
+	PriorityCritical = 100
+
+	PriorityMin = 0
+	PriorityMax = 100
+)

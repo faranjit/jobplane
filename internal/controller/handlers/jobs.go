@@ -32,6 +32,11 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Priority < api.PriorityMin || req.Priority > api.PriorityMax {
+		h.httpError(w, fmt.Sprintf("Priority must be between %d and %d", api.PriorityMin, api.PriorityMax), http.StatusBadRequest)
+		return
+	}
+
 	tenantID, ok := middleware.TenantIDFromContext(ctx)
 	if !ok {
 		h.httpError(w, "Unauthorized", http.StatusUnauthorized)

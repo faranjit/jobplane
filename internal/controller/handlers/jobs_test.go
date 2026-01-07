@@ -85,6 +85,20 @@ func TestCreateJob(t *testing.T) {
 			expectedStatus: http.StatusInternalServerError,
 			expectedInBody: "Failed to create job",
 		},
+		{
+			name:           "Invalid Priority - Too High",
+			body:           []byte(`{"name": "test", "image": "alpine", "priority": 101}`),
+			mockSetup:      func(m *mockStore) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedInBody: "Priority must be between",
+		},
+		{
+			name:           "Invalid Priority - Negative",
+			body:           []byte(`{"name": "test", "image": "alpine", "priority": -1}`),
+			mockSetup:      func(m *mockStore) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedInBody: "Priority must be between",
+		},
 	}
 
 	for _, tt := range tests {
