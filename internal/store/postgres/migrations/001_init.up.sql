@@ -31,6 +31,7 @@ CREATE TABLE executions (
     attempt INT DEFAULT 0,
     exit_code INT,
     error_message TEXT,
+    retried_from UUID REFERENCES executions(id), -- Links to original failed execution if retried from DLQ
     created_at TIMESTAMP DEFAULT NOW(),
     scheduled_at TIMESTAMP,
     started_at TIMESTAMP,
@@ -57,6 +58,17 @@ CREATE TABLE execution_logs (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- 6. Dead Letter Queue (Failed executions after max retries)
+CREATE TABLE execution_dlq (
+    id BIGSERIAL PRIMARY KEY,
+    execution_id UUID UNIQUE REFERENCES executions(id),
+    tenant_id UUID REFERENCES tenants(id),
+    payload JSONB NOT NULL,
+    error_message TEXT,
+    attempts INT NOT NULL,
+    failed_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Primary dequeue index: covers WHERE visible_after <= NOW() ORDER BY priority DESC, created_at ASC
 -- This index allows PostgreSQL to:
 -- 1. Use an index scan to filter visible_after <= NOW()
@@ -71,3 +83,6 @@ WHERE visible_after IS NOT NULL;
 
 -- Index by execution time
 CREATE INDEX idx_logs_execution_time ON execution_logs (execution_id, created_at);
+
+-- Index for listing DLQ by tenant
+CREATE INDEX idx_dlq_tenant ON execution_dlq (tenant_id, failed_at DESC);

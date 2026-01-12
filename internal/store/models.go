@@ -38,6 +38,7 @@ type Execution struct {
 	Attempt      int
 	ExitCode     *int
 	ErrorMessage *string
+	RetriedFrom  *uuid.UUID
 	ScheduledAt  *time.Time
 	CreatedAt    time.Time
 	StartedAt    *time.Time
@@ -49,6 +50,19 @@ type LogEntry struct {
 	ExecutionID uuid.UUID
 	Content     string
 	CreatedAt   time.Time
+}
+
+type DLQEntry struct {
+	ID           int64
+	ExecutionID  uuid.UUID
+	TenantID     uuid.UUID
+	JobID        string
+	JobName      string
+	Priority     int
+	Payload      []byte
+	ErrorMessage *string
+	Attempts     int
+	FailedAt     *time.Time
 }
 
 // ExecutionStatus represents the state of an execution.

@@ -5,6 +5,7 @@ import (
 	"jobplane/internal/controller/middleware"
 	"jobplane/pkg/api"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +48,89 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.respondJson(w, http.StatusOK, executionResponse)
+}
+
+// GetDQLExecutions handles GET /executions/dlq.
+// Returns a list of executions that failed to be processed.
+func (h *Handlers) GetDQLExecutions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	tenantID, ok := middleware.TenantIDFromContext(ctx)
+	if !ok {
+		h.httpError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	query := r.URL.Query()
+	limit := 20 // default limit
+	if l := query.Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 10000 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := query.Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil {
+			offset = parsed
+		}
+	}
+
+	executions, err := h.store.ListDLQ(ctx, tenantID, limit, offset)
+	if err != nil {
+		h.httpError(w, "Failed to list DLQ executions", http.StatusInternalServerError)
+		return
+	}
+
+	var executionResponses []api.DLQExecutionResponse
+	for _, execution := range executions {
+		executionResponses = append(executionResponses, api.DLQExecutionResponse{
+			ID:           execution.ID,
+			ExecutionID:  execution.ExecutionID.String(),
+			JobID:        execution.JobID,
+			JobName:      execution.JobName,
+			Priority:     execution.Priority,
+			ErrorMessage: execution.ErrorMessage,
+			Attempts:     execution.Attempts,
+			FailedAt:     execution.FailedAt,
+		})
+	}
+
+	h.respondJson(w, http.StatusOK, executionResponses)
+}
+
+// RetryDQLExecution handles POST /executions/dlq/{id}/retry.
+func (h *Handlers) RetryDQLExecution(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	tenantID, ok := middleware.TenantIDFromContext(ctx)
+	if !ok {
+		h.httpError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	executionIDStr := r.PathValue("id")
+	executionID, err := uuid.Parse(executionIDStr)
+	if err != nil {
+		h.httpError(w, "Invalid execution id", http.StatusBadRequest)
+		return
+	}
+
+	execution, err := h.store.GetExecutionByID(ctx, executionID)
+	if err != nil || execution.TenantID != tenantID {
+		h.httpError(w, "Execution not found", http.StatusNotFound)
+		return
+	}
+
+	newExecutionID, err := h.store.RetryFromDLQ(ctx, executionID)
+	if err != nil {
+		h.httpError(w, "Failed to retry DLQ execution", http.StatusInternalServerError)
+		return
+	}
+
+	h.respondJson(w, http.StatusOK, api.RetryDQLExecutionResponse{
+		NewExecutionID: newExecutionID.String(),
+	})
 }
 
 // ---------------------------------------------------------

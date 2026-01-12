@@ -232,3 +232,172 @@ func TestInternalUpdateResult(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDLQExecutions(t *testing.T) {
+	tenantID := uuid.New()
+	executionID := uuid.New()
+
+	tests := []struct {
+		name           string
+		queryParams    string
+		mockSetup      func()
+		expectedStatus int
+	}{
+		{
+			name:        "Success - Default Params",
+			queryParams: "",
+			mockSetup: func() {
+				listDLQResp = []store.DLQEntry{
+					{
+						ID:          1,
+						ExecutionID: executionID,
+						TenantID:    tenantID,
+						JobID:       uuid.New().String(),
+						JobName:     "test-job",
+						Priority:    50,
+						Attempts:    5,
+					},
+				}
+				listDLQErr = nil
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "Success - Empty DLQ",
+			queryParams: "",
+			mockSetup: func() {
+				listDLQResp = []store.DLQEntry{}
+				listDLQErr = nil
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:        "Store Error",
+			queryParams: "",
+			mockSetup: func() {
+				listDLQResp = nil
+				listDLQErr = errors.New("db failed")
+			},
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockStore{}
+			if tt.mockSetup != nil {
+				tt.mockSetup()
+			}
+
+			h := New(mock)
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /executions/dlq", h.GetDQLExecutions)
+
+			req := httptest.NewRequest(http.MethodGet, "/executions/dlq"+tt.queryParams, nil)
+			rr := httptest.NewRecorder()
+
+			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			req = req.WithContext(ctx)
+
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("handler returned wrong status code: got %d want %d", rr.Code, tt.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestRetryDLQExecution(t *testing.T) {
+	tenantID := uuid.New()
+	executionID := uuid.New()
+	newExecutionID := uuid.New()
+
+	tests := []struct {
+		name           string
+		executionID    string
+		mockSetup      func(*mockStore)
+		expectedStatus int
+	}{
+		{
+			name:        "Success",
+			executionID: executionID.String(),
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:       executionID,
+					TenantID: tenantID,
+					Status:   store.ExecutionStatusFailed,
+				}
+				retryFromDLQResp = newExecutionID
+				retryFromDLQErr = nil
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Invalid UUID",
+			executionID:    "not-a-uuid",
+			mockSetup:      func(m *mockStore) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "Execution Not Found",
+			executionID: executionID.String(),
+			mockSetup: func(m *mockStore) {
+				m.getExecutionErr = errors.New("not found")
+			},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:        "Wrong Tenant",
+			executionID: executionID.String(),
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:       executionID,
+					TenantID: uuid.New(),
+					Status:   store.ExecutionStatusFailed,
+				}
+			},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:        "Retry Store Error",
+			executionID: executionID.String(),
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:       executionID,
+					TenantID: tenantID,
+					Status:   store.ExecutionStatusFailed,
+				}
+				retryFromDLQErr = errors.New("db failed")
+			},
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockStore{}
+			if tt.mockSetup != nil {
+				tt.mockSetup(mock)
+			}
+
+			h := New(mock)
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /executions/dlq/{id}/retry", h.RetryDQLExecution)
+
+			req := httptest.NewRequest(http.MethodPost, "/executions/dlq/"+tt.executionID+"/retry", nil)
+			rr := httptest.NewRecorder()
+
+			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			req = req.WithContext(ctx)
+
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("handler returned wrong status code: got %d want %d, body: %s", rr.Code, tt.expectedStatus, rr.Body.String())
+			}
+		})
+	}
+}

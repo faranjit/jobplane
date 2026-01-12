@@ -135,3 +135,19 @@ func (m *mockStore) Fail(ctx context.Context, tx store.DBTransaction, executionI
 func (m *mockStore) Count(ctx context.Context) (int64, error) {
 	return 0, nil
 }
+
+// DLQ Hooks
+var (
+	listDLQResp      []store.DLQEntry
+	listDLQErr       error
+	retryFromDLQResp uuid.UUID
+	retryFromDLQErr  error
+)
+
+func (m *mockStore) ListDLQ(ctx context.Context, tenantID uuid.UUID, limit, offset int) ([]store.DLQEntry, error) {
+	return listDLQResp, listDLQErr
+}
+
+func (m *mockStore) RetryFromDLQ(ctx context.Context, executionID uuid.UUID) (uuid.UUID, error) {
+	return retryFromDLQResp, retryFromDLQErr
+}

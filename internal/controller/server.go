@@ -34,6 +34,8 @@ func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) 
 	mux.Handle("POST /jobs/{id}/run", authMW(http.HandlerFunc(h.RunJob)))
 	mux.Handle("GET /executions/{id}", authMW(http.HandlerFunc(h.GetExecution)))
 	mux.Handle("GET /executions/{id}/logs", authMW(http.HandlerFunc(h.GetExecutionLogs)))
+	mux.Handle("GET /executions/dlq", authMW(http.HandlerFunc(h.GetDQLExecutions)))
+	mux.Handle("POST /executions/dlq/{id}/retry", authMW(http.HandlerFunc(h.RetryDQLExecution)))
 
 	// Internal endpoints
 	// These are called by the Worker Agent.

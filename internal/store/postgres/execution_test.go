@@ -30,10 +30,10 @@ func TestGetExecutionByID_Success(t *testing.T) {
 		WithArgs(executionID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "job_id", "tenant_id", "status", "priority", "attempt",
-			"exit_code", "error_message", "scheduled_at", "created_at", "started_at", "finished_at",
+			"exit_code", "error_message", "retried_from", "scheduled_at", "created_at", "started_at", "finished_at",
 		}).AddRow(
 			executionID, jobID, tenantID, "SUCCEEDED", 61, 1,
-			exitCode, errMsg, now, now, startedAt, completedAt,
+			exitCode, errMsg, nil, now, now, startedAt, completedAt,
 		))
 
 	execution, err := s.GetExecutionByID(ctx, executionID)
@@ -105,5 +105,161 @@ func TestGetExecutionByID_DatabaseError(t *testing.T) {
 	_, err := s.GetExecutionByID(ctx, executionID)
 	if err == nil {
 		t.Error("expected error, got nil")
+	}
+}
+
+func TestListDLQ_Success(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+	executionID := uuid.New()
+	jobName := "test-job"
+	errMsg := "max retries exceeded"
+	failedAt := time.Now()
+
+	mock.ExpectQuery(`SELECT dlq\.\*, e\.job_id, j\.name as job_name, e\.priority FROM execution_dlq dlq`).
+		WithArgs(tenantID, 10, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "execution_id", "tenant_id", "payload", "error_message", "attempts", "failed_at",
+			"job_id", "job_name", "priority",
+		}).AddRow(
+			1, executionID, tenantID, []byte(`{"key":"value"}`), errMsg, 5, failedAt,
+			uuid.New(), jobName, 50,
+		))
+
+	entries, err := s.ListDLQ(ctx, tenantID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListDLQ failed: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	entry := entries[0]
+	if entry.ExecutionID != executionID {
+		t.Errorf("got ExecutionID %v, want %v", entry.ExecutionID, executionID)
+	}
+	if entry.JobName != jobName {
+		t.Errorf("got JobName %s, want %s", entry.JobName, jobName)
+	}
+	if entry.Attempts != 5 {
+		t.Errorf("got Attempts %d, want 5", entry.Attempts)
+	}
+	if entry.Priority != 50 {
+		t.Errorf("got Priority %d, want 50", entry.Priority)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestListDLQ_Empty(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+
+	mock.ExpectQuery(`SELECT dlq\.\*, e\.job_id, j\.name as job_name, e\.priority FROM execution_dlq dlq`).
+		WithArgs(tenantID, 20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "execution_id", "tenant_id", "payload", "error_message", "attempts", "failed_at",
+			"job_id", "job_name", "priority",
+		}))
+
+	entries, err := s.ListDLQ(ctx, tenantID, 20, 0)
+	if err != nil {
+		t.Fatalf("ListDLQ failed: %v", err)
+	}
+
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(entries))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestRetryFromDLQ_Success(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	executionID := uuid.New()
+	jobID := uuid.New()
+	tenantID := uuid.New()
+	payload := []byte(`{"test": true}`)
+
+	mock.ExpectBegin()
+
+	// SELECT from DLQ with JOIN
+	mock.ExpectQuery(`SELECT dlq\.id, dlq\.payload, e\.id, e\.job_id, e\.tenant_id, e\.priority FROM execution_dlq dlq`).
+		WithArgs(executionID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"dlq_id", "payload", "exec_id", "job_id", "tenant_id", "priority",
+		}).AddRow(
+			1, payload, executionID, jobID, tenantID, 75,
+		))
+
+	// INSERT new execution
+	mock.ExpectExec(`INSERT INTO executions`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// Enqueue new execution
+	mock.ExpectQuery(`INSERT INTO execution_queue`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(42))
+
+	// DELETE from DLQ
+	mock.ExpectExec(`DELETE FROM execution_dlq`).
+		WithArgs(executionID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectCommit()
+
+	newExecID, err := s.RetryFromDLQ(ctx, executionID)
+	if err != nil {
+		t.Fatalf("RetryFromDLQ failed: %v", err)
+	}
+
+	if newExecID == uuid.Nil {
+		t.Error("expected non-nil execution ID")
+	}
+
+	if newExecID == executionID {
+		t.Error("new execution ID should be different from original")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestRetryFromDLQ_NotFound(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	executionID := uuid.New()
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(`SELECT dlq\.id, dlq\.payload, e\.id, e\.job_id, e\.tenant_id, e\.priority FROM execution_dlq dlq`).
+		WithArgs(executionID).
+		WillReturnError(sql.ErrNoRows)
+
+	mock.ExpectRollback()
+
+	_, err := s.RetryFromDLQ(ctx, executionID)
+	if err == nil {
+		t.Error("expected error for non-existent DLQ entry")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
 	}
 }
