@@ -13,34 +13,36 @@ jobplane allows teams to define background jobs, enqueue executions, and run the
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Control Plane                            │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐        │
-│   │   HTTP API  │───▶│  Job Store  │───▶│    Queue    │        │
-│   └─────────────┘    └─────────────┘    └─────────────┘        │
+│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│   │   HTTP API  │───▶│  Job Store  │───▶│    Queue    │         │
+│   └─────────────┘    └─────────────┘    └─────────────┘         │
 │         ▲                                      │                │
 │         │                                      ▼                │
-│   ┌─────┴─────┐                        ┌─────────────┐         │
-│   │    CLI    │                        │  PostgreSQL │         │
-│   └───────────┘                        └──────┬──────┘         │
+│   ┌─────┴─────┐                        ┌─────────────┐          │
+│   │    CLI    │                        │  PostgreSQL │          │
+│   └───────────┘                        └──────┬──────┘          │
 └───────────────────────────────────────────────┼─────────────────┘
                                                 │
 ┌───────────────────────────────────────────────┼─────────────────┐
 │                        Data Plane             │                 │
 │                                               ▼                 │
-│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐        │
-│   │   Worker    │───▶│   Runtime   │───▶│   Docker    │        │
-│   │   Agent     │    │  Interface  │    │   / Exec    │        │
-│   └─────────────┘    └─────────────┘    └─────────────┘        │
+│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│   │   Worker    │───▶│   Runtime   │───▶│ Kubernetes  │         │
+│   │   Agent     │    │  Interface  │    │ Docker/Exec │         │
+│   └─────────────┘    └─────────────┘    └─────────────┘         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Features
 
 - **Multi-Tenant** – Every operation scoped by `tenant_id`
-- **At-Least-Once Execution** – Designed for idempotency with retry semantics
-- **Pluggable Runtimes** – Docker containers or raw processes
-- **Postgres-Backed Queue** – `SELECT FOR UPDATE SKIP LOCKED` for reliable job claiming
+- **Pluggable Runtimes** – Supports **Kubernetes Jobs**, Docker containers, and raw processes
+- **Scheduled Execution** – Schedule jobs to run at a specific future time (RFC3339)
+- **Priority Queues** – Prioritize critical workloads (Critical, High, Normal, Low)
+- **Dead Letter Queue (DLQ)** – Automatic handling and inspection of permanently failed jobs
+- **Postgres-Backed Queue** – `SELECT FOR UPDATE SKIP LOCKED` for reliable, transactional job claiming
 - **Graceful Shutdown** – SIGTERM handling with in-flight execution completion
-- **Log Streaming** – Real-time log streaming from workers to controller with batch optimization
+- **Log Streaming** – Real-time log streaming from workers to controller
 - **Timeout Enforcement** – Hard deadlines via `context.WithTimeout`
 - **Heartbeat-Based Visibility** – Long-running jobs extend queue visibility to prevent duplicate pickup
 
@@ -97,6 +99,28 @@ DATABASE_URL="postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable
 
 ```bash
 ./bin/jobctl submit --name "hello" --image "alpine:latest" --command "echo", "Hello, jobplane!"
+```
+
+### Submit a high-priority Job:
+
+```bash
+./bin/jobctl submit --name "urgent" --image "alpine:latest" --command "echo", "Fast!" --priority 100
+```
+
+### Schedule a Job for later:
+
+```bash
+# First create the job
+./bin/jobctl create --name "nightly" --image "alpine" --command "echo", "nightly run"
+# Then run it with a schedule
+./bin/jobctl run <job-id> --schedule "2024-12-31T23:59:00Z"
+```
+
+### Manage Failed Jobs (DLQ):
+
+```bash
+./bin/jobctl dlq list
+./bin/jobctl dlq retry <execution-id>
 ```
 
 ## Architecture Invariants
