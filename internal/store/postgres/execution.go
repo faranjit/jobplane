@@ -17,7 +17,7 @@ func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Exec
 		&execution.ID, &execution.JobID, &execution.TenantID,
 		&execution.Status, &execution.Priority, &execution.Attempt,
 		&execution.ExitCode, &execution.ErrorMessage, &execution.RetriedFrom,
-		&execution.ScheduledAt, &execution.CreatedAt, &execution.StartedAt, &execution.CompletedAt,
+		&execution.CreatedAt, &execution.ScheduledAt, &execution.StartedAt, &execution.CompletedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -90,7 +90,7 @@ func (s *Store) RetryFromDLQ(ctx context.Context, executionID uuid.UUID) (uuid.U
 		Priority:    execution.Priority,
 		Status:      store.ExecutionStatusPending,
 		RetriedFrom: &execution.ID,
-		CreatedAt:   time.Now(),
+		CreatedAt:   time.Now().UTC(),
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -103,7 +103,7 @@ func (s *Store) RetryFromDLQ(ctx context.Context, executionID uuid.UUID) (uuid.U
 		return uuid.Nil, err
 	}
 
-	_, err = s.Enqueue(ctx, tx, newExecution.ID, dlqEntry.Payload, time.Now())
+	_, err = s.Enqueue(ctx, tx, newExecution.ID, dlqEntry.Payload, time.Now().UTC())
 	if err != nil {
 		return uuid.Nil, err
 	}

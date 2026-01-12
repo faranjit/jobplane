@@ -99,6 +99,7 @@ func (h *Handlers) GetDQLExecutions(w http.ResponseWriter, r *http.Request) {
 	h.respondJson(w, http.StatusOK, executionResponses)
 }
 
+// RetryDQLExecution handles POST /executions/dlq/{id}/retry.
 func (h *Handlers) RetryDQLExecution(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

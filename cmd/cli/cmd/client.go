@@ -164,3 +164,63 @@ func (c *JobClient) GetLogs(executionID string, afterID int64) ([]api.LogEntry, 
 
 	return result.Logs, nil
 }
+
+// ListDLQExecutions sends GET /executions/dlq to retrieve failed executions.
+func (c *JobClient) ListDLQExecutions(limit, offset int) ([]api.DLQExecutionResponse, error) {
+	endpoint := fmt.Sprintf("%s/executions/dlq?limit=%d&offset=%d", c.BaseURL, limit, offset)
+	httpReq, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	httpReq.Header.Add("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: string(respBody)}
+	}
+
+	var result []api.DLQExecutionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return result, nil
+}
+
+// RetryDLQExecution sends POST /executions/dlq/{id}/retry to retry a failed execution.
+func (c *JobClient) RetryDLQExecution(executionID string) (*api.RetryDQLExecutionResponse, error) {
+	endpoint := fmt.Sprintf("%s/executions/dlq/%s/retry", c.BaseURL, executionID)
+	httpReq, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	httpReq.Header.Add("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, &APIError{StatusCode: resp.StatusCode, Message: string(respBody)}
+	}
+
+	var result api.RetryDQLExecutionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &result, nil
+}

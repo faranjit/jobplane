@@ -194,7 +194,7 @@ func (s *Store) Fail(ctx context.Context, tx store.DBTransaction, executionID uu
 	// move the execution to DLQ
 	_, err = executor.ExecContext(ctx,
 		`INSERT INTO execution_dlq (execution_id, tenant_id, payload, error_message, attempts, failed_at) 
-			SELECT execution_id, tenant_id, payload, $1, attempts, NOW() 
+			SELECT execution_id, tenant_id, payload, $1, attempt, NOW() 
 			FROM execution_queue WHERE execution_id = $2`,
 		errMsg, executionID,
 	)
