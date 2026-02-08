@@ -6,7 +6,10 @@ import "time"
 
 // CreateTenantRequest is the request body for creating a new tenant.
 type CreateTenantRequest struct {
-	Name string `json:"name"`
+	Name                    string `json:"name"`
+	RateLimit               int    `json:"rate_limit,omitempty"`
+	RateLimitBurst          int    `json:"rate_limit_burst,omitempty"`
+	MaxConcurrentExecutions int    `json:"max_concurrent_executions,omitempty"`
 }
 
 // CreateTenantResponse is the response body after creating a tenant.

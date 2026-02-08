@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"testing"
 	"time"
 
@@ -103,6 +104,94 @@ func TestGetExecutionByID_DatabaseError(t *testing.T) {
 		WillReturnError(sql.ErrConnDone)
 
 	_, err := s.GetExecutionByID(ctx, executionID)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
+
+func TestCountRunningExecutions_Success(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+	count := int64(3)
+
+	// Expect advisory lock first
+	tenantLockKey := int32(tenantID[0])<<24 | int32(tenantID[1])<<16 | int32(tenantID[2])<<8 | int32(tenantID[3])
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_xact_lock(1, $1)`)).
+		WithArgs(tenantLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// Then expect count query
+	mock.ExpectQuery(
+		regexp.QuoteMeta(`SELECT COUNT(*) FROM executions WHERE tenant_id = $1 AND status = $2`),
+	).WithArgs(tenantID, store.ExecutionStatusRunning).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).
+			AddRow(count))
+
+	actualCount, err := s.CountRunningExecutions(ctx, nil, tenantID)
+	if err != nil {
+		t.Fatalf("CountRunningExecutions failed: %v", err)
+	}
+
+	if actualCount != count {
+		t.Errorf("got count %d, want %d", actualCount, count)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestCountRunningExecutions_NotFound(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+
+	// Expect advisory lock first
+	tenantLockKey := int32(tenantID[0])<<24 | int32(tenantID[1])<<16 | int32(tenantID[2])<<8 | int32(tenantID[3])
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_xact_lock(1, $1)`)).
+		WithArgs(tenantLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// Then expect count query
+	mock.ExpectQuery(
+		regexp.QuoteMeta(`SELECT COUNT(*) FROM executions WHERE tenant_id = $1 AND status = $2`),
+	).WithArgs(tenantID, store.ExecutionStatusRunning).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).
+			AddRow(int64(0)))
+
+	actualCount, err := s.CountRunningExecutions(ctx, nil, tenantID)
+	if err != nil {
+		t.Fatalf("CountRunningExecutions failed: %v", err)
+	}
+
+	if actualCount != 0 {
+		t.Errorf("got count %d, want 0", actualCount)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestCountRunningExecutions_DatabaseError(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+
+	// Advisory lock fails
+	tenantLockKey := int32(tenantID[0])<<24 | int32(tenantID[1])<<16 | int32(tenantID[2])<<8 | int32(tenantID[3])
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_xact_lock(1, $1)`)).
+		WithArgs(tenantLockKey).
+		WillReturnError(sql.ErrConnDone)
+
+	_, err := s.CountRunningExecutions(ctx, nil, tenantID)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}

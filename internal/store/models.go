@@ -10,9 +10,12 @@ import (
 // Tenant represents a customer or team using the platform.
 // All operations must be scoped by TenantID.
 type Tenant struct {
-	ID        uuid.UUID
-	Name      string
-	CreatedAt time.Time
+	ID                      uuid.UUID
+	Name                    string
+	CreatedAt               time.Time
+	RateLimit               int
+	RateLimitBurst          int
+	MaxConcurrentExecutions int // 0 = unlimited
 }
 
 // Job represents a job definition submitted by a tenant.

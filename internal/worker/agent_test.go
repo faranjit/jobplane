@@ -86,6 +86,10 @@ func (m *MockQueue) Count(ctx context.Context) (int64, error) {
 	return 0, nil
 }
 
+func (m *MockQueue) CountRunningExecutions(ctx context.Context, tx store.DBTransaction, tenantID uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
 // MockRuntime implements runtime.Runtime for testing.
 type MockRuntime struct {
 	StartFunc func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error)

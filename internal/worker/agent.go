@@ -147,10 +147,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 			if len(items) == 0 {
 				// Empty queue - increase backoff (exponential, capped at MaxBackoff)
-				currentBackoff = currentBackoff * 2
-				if currentBackoff > a.config.MaxBackoff {
-					currentBackoff = a.config.MaxBackoff
-				}
+				currentBackoff = min(currentBackoff*2, a.config.MaxBackoff)
 				continue
 			}
 

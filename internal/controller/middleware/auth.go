@@ -13,6 +13,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// tenantKey is the context key for the tenant.
+type tenantKey struct{}
+
 // tenantIDKey is the context key for the tenant ID.
 type tenantIDKey struct{}
 
@@ -45,24 +48,33 @@ func AuthMiddleware(s store.TenantStore) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), tenantIDKey{}, tenant.ID)
+			ctx := context.WithValue(r.Context(), tenantKey{}, tenant)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// TenantIDFromContext extracts the tenant ID from the context.
-func TenantIDFromContext(ctx context.Context) (uuid.UUID, bool) {
-	v := ctx.Value(tenantIDKey{})
+// TenantFromContext extracts the tenant from the context.
+func TenantFromContext(ctx context.Context) (*store.Tenant, bool) {
+	v := ctx.Value(tenantKey{})
 	if v == nil {
-		return uuid.Nil, false
+		return nil, false
 	}
-	id, ok := v.(uuid.UUID)
-	return id, ok
+	tenant, ok := v.(*store.Tenant)
+	return tenant, ok
 }
 
-// NewContextWithTenantID returns a new context with the given tenant ID.
+// TenantIDFromContext extracts the tenant ID from the context.
+func TenantIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	tenant, ok := TenantFromContext(ctx)
+	if !ok {
+		return uuid.Nil, false
+	}
+	return tenant.ID, true
+}
+
+// NewContextWithTenant returns a new context with the given tenant.
 // This is used ONLY for testing handlers in isolation.
-func NewContextWithTenantID(ctx context.Context, tenantID uuid.UUID) context.Context {
-	return context.WithValue(ctx, tenantIDKey{}, tenantID)
+func NewContextWithTenant(ctx context.Context, tenant *store.Tenant) context.Context {
+	return context.WithValue(ctx, tenantKey{}, tenant)
 }

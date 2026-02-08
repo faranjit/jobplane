@@ -26,6 +26,29 @@ func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Exec
 	return &execution, nil
 }
 
+func (s *Store) CountRunningExecutions(ctx context.Context, tx store.DBTransaction, tenantID uuid.UUID) (int64, error) {
+	executor := s.getExecutor(tx)
+
+	// Use advisory lock at tenant level for concurrency control
+	lockQuery := `SELECT pg_advisory_xact_lock(1, $1)`
+	tenantLockKey := int32(tenantID[0])<<24 | int32(tenantID[1])<<16 | int32(tenantID[2])<<8 | int32(tenantID[3])
+
+	if _, err := executor.ExecContext(ctx, lockQuery, tenantLockKey); err != nil {
+		return 0, err
+	}
+
+	// count without row-level locks
+	countQuery := `SELECT COUNT(*) FROM executions WHERE tenant_id = $1 AND status = $2`
+
+	var count int64
+	err := executor.QueryRowContext(ctx, countQuery, tenantID, store.ExecutionStatusRunning).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
 func (s *Store) ListDLQ(ctx context.Context, tenantID uuid.UUID, limit int, offset int) ([]store.DLQEntry, error) {
 	query := `
 	SELECT dlq.*, e.job_id, j.name as job_name, e.priority
