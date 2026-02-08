@@ -34,10 +34,23 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 	hashedKey := auth.HashKey(apiKey)
 
+	rateLimit := req.RateLimit
+	if rateLimit == 0 {
+		rateLimit = 100
+	}
+
+	rateLimitBurst := req.RateLimitBurst
+	if rateLimitBurst == 0 {
+		rateLimitBurst = 100
+	}
+
 	tenant := &store.Tenant{
-		ID:        uuid.New(),
-		Name:      req.Name,
-		CreatedAt: time.Now(),
+		ID:                      uuid.New(),
+		Name:                    req.Name,
+		RateLimit:               rateLimit,
+		RateLimitBurst:          rateLimitBurst,
+		MaxConcurrentExecutions: req.MaxConcurrentExecutions, // 0 = unlimited, so no need to check if empty
+		CreatedAt:               time.Now(),
 	}
 
 	if err := h.store.CreateTenant(ctx, tenant, hashedKey); err != nil {

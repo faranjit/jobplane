@@ -82,7 +82,7 @@ func TestGetExecution(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			// Inject tenant to context
-			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			ctx := middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID})
 			req = req.WithContext(ctx)
 
 			// Execute
@@ -297,7 +297,7 @@ func TestGetDLQExecutions(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/executions/dlq"+tt.queryParams, nil)
 			rr := httptest.NewRecorder()
 
-			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			ctx := middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID})
 			req = req.WithContext(ctx)
 
 			mux.ServeHTTP(rr, req)
@@ -390,7 +390,7 @@ func TestRetryDLQExecution(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/executions/dlq/"+tt.executionID+"/retry", nil)
 			rr := httptest.NewRecorder()
 
-			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			ctx := middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID})
 			req = req.WithContext(ctx)
 
 			mux.ServeHTTP(rr, req)

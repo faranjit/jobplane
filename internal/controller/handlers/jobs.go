@@ -102,7 +102,7 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID, ok := middleware.TenantIDFromContext(ctx)
+	tenant, ok := middleware.TenantFromContext(ctx)
 	if !ok {
 		h.httpError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -121,7 +121,7 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := h.store.GetJobByID(ctx, jobID)
-	if err != nil || job.TenantID != tenantID {
+	if err != nil || job.TenantID != tenant.ID {
 		h.httpError(w, "Related job not found", http.StatusNotFound)
 		return
 	}
@@ -143,7 +143,7 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	execution := &store.Execution{
 		ID:          uuid.New(),
 		JobID:       jobID,
-		TenantID:    tenantID,
+		TenantID:    tenant.ID,
 		Status:      status,
 		Priority:    job.Priority,
 		ScheduledAt: &scheduledAt,
@@ -156,6 +156,19 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	if tenant.MaxConcurrentExecutions > 0 { // if 0, it means no limit
+		// Check if count of running executions is less than allowed per tenant
+		count, err := h.store.CountRunningExecutions(ctx, tx, tenant.ID)
+		if err != nil {
+			h.httpError(w, "Failed to count running executions", http.StatusInternalServerError)
+			return
+		}
+		if count >= int64(tenant.MaxConcurrentExecutions) {
+			h.httpError(w, "Max concurrent executions for tenant reached", http.StatusTooManyRequests)
+			return
+		}
+	}
 
 	// Create execution history
 	if err := h.store.CreateExecution(ctx, tx, execution); err != nil {

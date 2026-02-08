@@ -164,7 +164,7 @@ func TestGetLogs(t *testing.T) {
 			mux.HandleFunc("GET /executions/{id}/logs", h.GetExecutionLogs)
 
 			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
-			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			ctx := middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID})
 			req = req.WithContext(ctx)
 			rr := httptest.NewRecorder()
 

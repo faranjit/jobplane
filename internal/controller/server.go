@@ -20,6 +20,7 @@ type Server struct {
 func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) *Server {
 	h := handlers.New(store)
 	authMW := middleware.AuthMiddleware(store)
+	rateMW := middleware.RateLimitMiddleware(store)
 
 	mux := http.NewServeMux()
 
@@ -30,12 +31,12 @@ func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) 
 	mux.HandleFunc("POST /tenants", h.CreateTenant)
 
 	// Public authenticated apis
-	mux.Handle("POST /jobs", authMW(http.HandlerFunc(h.CreateJob)))
-	mux.Handle("POST /jobs/{id}/run", authMW(http.HandlerFunc(h.RunJob)))
-	mux.Handle("GET /executions/{id}", authMW(http.HandlerFunc(h.GetExecution)))
-	mux.Handle("GET /executions/{id}/logs", authMW(http.HandlerFunc(h.GetExecutionLogs)))
-	mux.Handle("GET /executions/dlq", authMW(http.HandlerFunc(h.GetDQLExecutions)))
-	mux.Handle("POST /executions/dlq/{id}/retry", authMW(http.HandlerFunc(h.RetryDQLExecution)))
+	mux.Handle("POST /jobs", authMW(rateMW(http.HandlerFunc(h.CreateJob))))
+	mux.Handle("POST /jobs/{id}/run", authMW(rateMW(http.HandlerFunc(h.RunJob))))
+	mux.Handle("GET /executions/{id}", authMW(rateMW(http.HandlerFunc(h.GetExecution))))
+	mux.Handle("GET /executions/{id}/logs", authMW(rateMW(http.HandlerFunc(h.GetExecutionLogs))))
+	mux.Handle("GET /executions/dlq", authMW(rateMW(http.HandlerFunc(h.GetDQLExecutions))))
+	mux.Handle("POST /executions/dlq/{id}/retry", authMW(rateMW(http.HandlerFunc(h.RetryDQLExecution))))
 
 	// Internal endpoints
 	// These are called by the Worker Agent.

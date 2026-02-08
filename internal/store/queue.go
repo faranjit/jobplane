@@ -31,6 +31,10 @@ type Queue interface {
 
 	// Count tracks count of items in queue
 	Count(ctx context.Context) (int64, error)
+
+	// CountRunningExecutions returns the number of executions currently
+	// running for a given tenant (status = RUNNING).
+	CountRunningExecutions(ctx context.Context, tx DBTransaction, tenantID uuid.UUID) (int64, error)
 }
 
 // QueueItem represents a dequeued execution from the queue.

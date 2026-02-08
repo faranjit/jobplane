@@ -42,11 +42,13 @@ type mockStore struct {
 	createTenantErr error
 
 	// Execution Hooks
-	getExecutionResp *store.Execution
-	getExecutionErr  error
-	setVisibleErr    error
-	completeErr      error
-	failErr          error
+	getExecutionResp           *store.Execution
+	getExecutionErr            error
+	setVisibleErr              error
+	completeErr                error
+	failErr                    error
+	countRunningExecutionsResp int64
+	countRunningExecutionsErr  error
 
 	// Log Hooks
 	addLogEntryErr       error
@@ -134,6 +136,10 @@ func (m *mockStore) Fail(ctx context.Context, tx store.DBTransaction, executionI
 
 func (m *mockStore) Count(ctx context.Context) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockStore) CountRunningExecutions(ctx context.Context, tx store.DBTransaction, tenantID uuid.UUID) (int64, error) {
+	return m.countRunningExecutionsResp, m.countRunningExecutionsErr
 }
 
 // DLQ Hooks

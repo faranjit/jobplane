@@ -114,7 +114,7 @@ func TestCreateJob(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(tt.body))
 
 			// Inject Tenant Context using the helper
-			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			ctx := middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID})
 			req = req.WithContext(ctx)
 
 			// Execute
@@ -239,6 +239,15 @@ func TestRunJob(t *testing.T) {
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},
+		{
+			name:       "Failure - Max concurrent executions reached",
+			jobIDParam: jobID.String(),
+			mockSetup: func(m *mockStore) {
+				m.getJobByIDResp = validJob
+				m.countRunningExecutionsResp = 101
+			},
+			expectedStatus: http.StatusTooManyRequests,
+		},
 	}
 
 	for _, tt := range tests {
@@ -258,7 +267,7 @@ func TestRunJob(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/jobs/"+tt.jobIDParam+"/run", bytes.NewReader(bodyBytes))
 
 			// Inject Tenant Context
-			ctx := middleware.NewContextWithTenantID(req.Context(), tenantID)
+			ctx := middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID, MaxConcurrentExecutions: 100})
 			req = req.WithContext(ctx)
 
 			// Execute via Mux
@@ -291,7 +300,7 @@ func TestCreateJob_Metrics(t *testing.T) {
 	bodyBytes, _ := json.Marshal(reqBody)
 
 	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(bodyBytes))
-	req = req.WithContext(middleware.NewContextWithTenantID(req.Context(), tenantID))
+	req = req.WithContext(middleware.NewContextWithTenant(req.Context(), &store.Tenant{ID: tenantID}))
 	rr := httptest.NewRecorder()
 
 	http.HandlerFunc(h.CreateJob).ServeHTTP(rr, req)
