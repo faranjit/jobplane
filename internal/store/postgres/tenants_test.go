@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	storeTypes "jobplane/internal/store"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
 )
@@ -124,6 +126,64 @@ func TestGetTenantByAPIKeyHash_NotFound(t *testing.T) {
 	}
 	if tenant != nil {
 		t.Error("expected nil tenant")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestUpdateTenant_Success(t *testing.T) {
+	store, mock := newMockStore(t)
+	defer store.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+
+	tenant := &storeTypes.Tenant{
+		ID:                      tenantID,
+		Name:                    "Updated Corp",
+		RateLimit:               50,
+		RateLimitBurst:          100,
+		MaxConcurrentExecutions: 10,
+	}
+
+	mock.ExpectExec(`UPDATE tenants SET name = \$2, rate_limit = \$3, rate_limit_burst = \$4, max_concurrent_executions = \$5 WHERE id = \$1`).
+		WithArgs(tenantID, "Updated Corp", 50, 100, 10).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := store.UpdateTenant(ctx, tenant)
+	if err != nil {
+		t.Fatalf("UpdateTenant failed: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestUpdateTenant_DatabaseError(t *testing.T) {
+	store, mock := newMockStore(t)
+	defer store.db.Close()
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+
+	tenant := &storeTypes.Tenant{
+		ID:                      tenantID,
+		Name:                    "Error Corp",
+		RateLimit:               50,
+		RateLimitBurst:          100,
+		MaxConcurrentExecutions: 10,
+	}
+
+	mock.ExpectExec(`UPDATE tenants SET name = \$2, rate_limit = \$3, rate_limit_burst = \$4, max_concurrent_executions = \$5 WHERE id = \$1`).
+		WithArgs(tenantID, "Error Corp", 50, 100, 10).
+		WillReturnError(sql.ErrConnDone)
+
+	err := store.UpdateTenant(ctx, tenant)
+	if err != sql.ErrConnDone {
+		t.Errorf("expected sql.ErrConnDone, got %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -209,3 +209,66 @@ func TestRateLimitMiddleware_UnlimitedWhenRateLimitZero(t *testing.T) {
 		t.Errorf("expected 10 handler calls, got %d", handlerCallCount)
 	}
 }
+
+func TestNewRateLimiter_DefaultTTL(t *testing.T) {
+	rl := NewRateLimiter()
+
+	// Default TTL should be 5 minutes
+	if rl.ttl != 5*time.Minute {
+		t.Errorf("got TTL %v, want %v", rl.ttl, 5*time.Minute)
+	}
+}
+
+func TestNewRateLimiter_WithTTL(t *testing.T) {
+	customTTL := 10 * time.Minute
+	rl := NewRateLimiter(WithTTL(customTTL))
+
+	if rl.ttl != customTTL {
+		t.Errorf("got TTL %v, want %v", rl.ttl, customTTL)
+	}
+}
+
+func TestRateLimiter_InvalidateTenant(t *testing.T) {
+	rl := NewRateLimiter()
+	middleware := rl.Middleware()
+
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tenantID := uuid.New()
+	tenant := &store.Tenant{
+		ID:             tenantID,
+		Name:           "Test Tenant",
+		RateLimit:      1,
+		RateLimitBurst: 1,
+	}
+	ctx := NewContextWithTenant(context.Background(), tenant)
+
+	// First request - uses burst
+	req1 := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first request failed: got %d", rr1.Code)
+	}
+
+	// Second request - rate limited
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request should be rate limited: got %d", rr2.Code)
+	}
+
+	// Invalidate the tenant's limiter
+	rl.InvalidateTenant(tenantID)
+
+	// Third request - should succeed (new limiter created with fresh burst)
+	req3 := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	rr3 := httptest.NewRecorder()
+	handler.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusOK {
+		t.Errorf("after invalidation: got status %d, want %d", rr3.Code, http.StatusOK)
+	}
+}
