@@ -866,32 +866,133 @@ func TestProcessItem_Metrics(t *testing.T) {
 
 	agent := New(q, rt, AgentConfig{}, nil)
 
-	// 3. Create Payload
-	job := store.Job{ID: uuid.New(), Name: "test", Image: "img"}
+	// Create Payload with tenant ID to verify attributes
+	tenantID := uuid.New()
+	job := store.Job{ID: uuid.New(), Name: "test-job", Image: "img", TenantID: tenantID}
 	payloadBytes, _ := json.Marshal(job)
 
 	// Run ProcessItem directly (bypassing the loop)
 	agent.processItem(context.Background(), uuid.New(), payloadBytes)
 
-	// Verify Histogram
+	// Collect Metrics
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &rm); err != nil {
 		t.Fatalf("Failed to collect metrics: %v", err)
 	}
 
-	found := false
+	foundHistogram := false
+	foundCounter := false
+
 	for _, scope := range rm.ScopeMetrics {
 		for _, m := range scope.Metrics {
-			if m.Name == "jobplane.worker.execution_duration_seconds" {
-				if _, ok := m.Data.(metricdata.Histogram[float64]); ok {
-					// just check that some data was recorded
-					found = true
+			switch m.Name {
+			case "jobplane.worker.execution_duration_seconds":
+				if hist, ok := m.Data.(metricdata.Histogram[float64]); ok {
+					foundHistogram = true
+					// Verify there's at least one data point
+					if len(hist.DataPoints) == 0 {
+						t.Error("Expected histogram to have data points")
+					}
+				}
+			case "jobplane.executions.completed_total":
+				if sum, ok := m.Data.(metricdata.Sum[int64]); ok {
+					foundCounter = true
+					// Verify counter has data points with correct attributes
+					if len(sum.DataPoints) == 0 {
+						t.Error("Expected counter to have data points")
+					} else {
+						// Check for status attribute
+						dp := sum.DataPoints[0]
+						hasStatus := false
+						hasTenantID := false
+						hasJobName := false
+						for _, attr := range dp.Attributes.ToSlice() {
+							switch attr.Key {
+							case "status":
+								hasStatus = true
+								if attr.Value.AsString() != "success" {
+									t.Errorf("Expected status='success', got '%s'", attr.Value.AsString())
+								}
+							case "tenant_id":
+								hasTenantID = true
+								if attr.Value.AsString() != tenantID.String() {
+									t.Errorf("Expected tenant_id='%s', got '%s'", tenantID.String(), attr.Value.AsString())
+								}
+							case "job_name":
+								hasJobName = true
+								if attr.Value.AsString() != "test-job" {
+									t.Errorf("Expected job_name='test-job', got '%s'", attr.Value.AsString())
+								}
+							}
+						}
+						if !hasStatus {
+							t.Error("Expected counter to have 'status' attribute")
+						}
+						if !hasTenantID {
+							t.Error("Expected counter to have 'tenant_id' attribute")
+						}
+						if !hasJobName {
+							t.Error("Expected counter to have 'job_name' attribute")
+						}
+					}
 				}
 			}
 		}
 	}
 
-	if !found {
+	if !foundHistogram {
 		t.Error("Expected metric 'jobplane.worker.execution_duration_seconds' to be recorded")
+	}
+	if !foundCounter {
+		t.Error("Expected metric 'jobplane.executions.completed_total' to be recorded")
+	}
+}
+
+func TestProcessItem_Metrics_Failure(t *testing.T) {
+	// Setup Metrics
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	otel.SetMeterProvider(provider)
+
+	q := &MockQueue{}
+
+	// Mock Runtime that fails
+	rt := &MockRuntime{
+		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
+			return &MockHandle{
+				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
+					return runtime.ExitResult{ExitCode: 1}, nil // Non-zero exit code
+				},
+			}, nil
+		},
+	}
+
+	agent := New(q, rt, AgentConfig{}, nil)
+
+	job := store.Job{ID: uuid.New(), Name: "failing-job", Image: "img", TenantID: uuid.New()}
+	payloadBytes, _ := json.Marshal(job)
+
+	agent.processItem(context.Background(), uuid.New(), payloadBytes)
+
+	// Collect Metrics
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Failed to collect metrics: %v", err)
+	}
+
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name == "jobplane.executions.completed_total" {
+				if sum, ok := m.Data.(metricdata.Sum[int64]); ok {
+					if len(sum.DataPoints) > 0 {
+						for _, attr := range sum.DataPoints[0].Attributes.ToSlice() {
+							if attr.Key == "status" && attr.Value.AsString() != "failure" {
+								t.Errorf("Expected status='failure' for failed execution, got '%s'", attr.Value.AsString())
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 }
