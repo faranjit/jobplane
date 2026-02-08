@@ -31,6 +31,9 @@ type TenantStore interface {
 
 	// GetTenantByAPIKeyHash returns a tenant by its API key hash.
 	GetTenantByAPIKeyHash(ctx context.Context, hash string) (*Tenant, error)
+
+	// UpdateTenant updates an existing tenant.
+	UpdateTenant(ctx context.Context, tenant *Tenant) error
 }
 
 // JobStore handles the persistence of Job definitions and Execution history.

@@ -18,9 +18,13 @@ type Server struct {
 
 // New creates a new controller server.
 func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) *Server {
-	h := handlers.New(store)
+	rateLimiter := middleware.NewRateLimiter()
 	authMW := middleware.AuthMiddleware(store)
-	rateMW := middleware.RateLimitMiddleware(store)
+	rateMW := rateLimiter.Middleware()
+
+	h := handlers.New(store).WithCallbacks(handlers.Callbacks{
+		OnTenantUpdated: rateLimiter.InvalidateTenant,
+	})
 
 	mux := http.NewServeMux()
 
@@ -31,6 +35,7 @@ func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) 
 	mux.HandleFunc("POST /tenants", h.CreateTenant)
 
 	// Public authenticated apis
+	mux.Handle("PATCH /tenants/{id}", authMW(rateMW(http.HandlerFunc(h.UpdateTenant))))
 	mux.Handle("POST /jobs", authMW(rateMW(http.HandlerFunc(h.CreateJob))))
 	mux.Handle("POST /jobs/{id}/run", authMW(rateMW(http.HandlerFunc(h.RunJob))))
 	mux.Handle("GET /executions/{id}", authMW(rateMW(http.HandlerFunc(h.GetExecution))))

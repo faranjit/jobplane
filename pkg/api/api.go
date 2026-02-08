@@ -19,6 +19,14 @@ type CreateTenantResponse struct {
 	ApiKey string `json:"api_key"`
 }
 
+// UpdateTenantRequest is the request body for updating an existing tenant.
+type UpdateTenantRequest struct {
+	Name                    string `json:"name,omitempty"`
+	RateLimit               int    `json:"rate_limit,omitempty"`
+	RateLimitBurst          int    `json:"rate_limit_burst,omitempty"`
+	MaxConcurrentExecutions int    `json:"max_concurrent_executions,omitempty"`
+}
+
 // CreateJobRequest is the request body for creating a new job.
 type CreateJobRequest struct {
 	Name           string   `json:"name"`

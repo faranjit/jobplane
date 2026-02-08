@@ -40,6 +40,7 @@ type mockStore struct {
 
 	// Tenant Hooks
 	createTenantErr error
+	updateTenantErr error
 
 	// Execution Hooks
 	getExecutionResp           *store.Execution
@@ -102,6 +103,10 @@ func (m *mockStore) GetTenantByID(ctx context.Context, id uuid.UUID) (*store.Ten
 
 func (m *mockStore) GetTenantByAPIKeyHash(ctx context.Context, hash string) (*store.Tenant, error) {
 	return nil, nil // Handled by Auth Middleware, not Handlers
+}
+
+func (m *mockStore) UpdateTenant(ctx context.Context, tenant *store.Tenant) error {
+	return m.updateTenantErr
 }
 
 func (m *mockStore) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {

@@ -5,15 +5,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"jobplane/internal/store"
 
 	"github.com/google/uuid"
 )
 
+func rateMw() func(http.Handler) http.Handler {
+	return NewRateLimiter(WithTTL(5 * time.Minute)).Middleware()
+}
+
 func TestRateLimitMiddleware_NoTenantInContext(t *testing.T) {
-	mockStore := &mockTenantStore{}
-	middleware := RateLimitMiddleware(mockStore)
+	middleware := rateMw()
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called when no tenant in context")
@@ -30,8 +34,7 @@ func TestRateLimitMiddleware_NoTenantInContext(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_AllowsRequestUnderLimit(t *testing.T) {
-	mockStore := &mockTenantStore{}
-	middleware := RateLimitMiddleware(mockStore)
+	middleware := rateMw()
 
 	handlerCalled := false
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,8 +64,7 @@ func TestRateLimitMiddleware_AllowsRequestUnderLimit(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_RejectsRequestOverLimit(t *testing.T) {
-	mockStore := &mockTenantStore{}
-	middleware := RateLimitMiddleware(mockStore)
+	middleware := rateMw()
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -96,8 +98,7 @@ func TestRateLimitMiddleware_RejectsRequestOverLimit(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_RetryAfterHeader(t *testing.T) {
-	mockStore := &mockTenantStore{}
-	middleware := RateLimitMiddleware(mockStore)
+	middleware := rateMw()
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -128,8 +129,7 @@ func TestRateLimitMiddleware_RetryAfterHeader(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_IndependentLimitsPerTenant(t *testing.T) {
-	mockStore := &mockTenantStore{}
-	middleware := RateLimitMiddleware(mockStore)
+	middleware := rateMw()
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -178,8 +178,7 @@ func TestRateLimitMiddleware_IndependentLimitsPerTenant(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_UnlimitedWhenRateLimitZero(t *testing.T) {
-	mockStore := &mockTenantStore{}
-	middleware := RateLimitMiddleware(mockStore)
+	middleware := rateMw()
 
 	handlerCallCount := 0
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

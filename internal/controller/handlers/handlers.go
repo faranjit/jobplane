@@ -8,6 +8,8 @@ import (
 	"jobplane/pkg/api"
 	"net/http"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 // StoreFactory combines the interfaces needed for the controller to function.
@@ -21,12 +23,26 @@ type StoreFactory interface {
 
 // Handlers holds all HTTP handlers and their dependencies.
 type Handlers struct {
-	store StoreFactory
+	store     StoreFactory
+	callbacks Callbacks
+}
+
+// Callbacks holds optional callbacks for handlers.
+type Callbacks struct {
+	// Called after a tenant is updated.
+	// This is useful for invalidating caches or triggering other actions.
+	OnTenantUpdated func(uuid.UUID)
 }
 
 // New creates a new Handlers instance with the given store dependency.
 func New(s StoreFactory) *Handlers {
 	return &Handlers{store: s}
+}
+
+// WithCallbacks returns a new Handlers instance with the given callbacks.
+func (h *Handlers) WithCallbacks(c Callbacks) *Handlers {
+	h.callbacks = c
+	return h
 }
 
 // A helper function to write standard JSON responses.
