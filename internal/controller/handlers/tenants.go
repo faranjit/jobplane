@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"jobplane/internal/auth"
+	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
 	"jobplane/pkg/api"
 	"net/http"
@@ -65,4 +66,49 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		ApiKey: apiKey,
 	}
 	h.respondJson(w, http.StatusCreated, resp)
+}
+
+// UpdateTenant handles PATCH /tenants/{id} (Admin Only).
+// It updates an existing tenant.
+func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req api.UpdateTenantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.httpError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	tenant, ok := middleware.TenantFromContext(ctx)
+	if !ok {
+		h.httpError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if req.Name != "" {
+		tenant.Name = req.Name
+	}
+
+	if req.RateLimit != 0 {
+		tenant.RateLimit = req.RateLimit
+	}
+
+	if req.RateLimitBurst != 0 {
+		tenant.RateLimitBurst = req.RateLimitBurst
+	}
+
+	if req.MaxConcurrentExecutions != 0 {
+		tenant.MaxConcurrentExecutions = req.MaxConcurrentExecutions
+	}
+
+	if err := h.store.UpdateTenant(ctx, tenant); err != nil {
+		h.httpError(w, "Failed to update tenant", http.StatusInternalServerError)
+		return
+	}
+
+	if h.callbacks.OnTenantUpdated != nil {
+		h.callbacks.OnTenantUpdated(tenant.ID)
+	}
+
+	h.respondJson(w, http.StatusNoContent, nil)
 }

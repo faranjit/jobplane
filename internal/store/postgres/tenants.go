@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"jobplane/internal/store"
 
 	"github.com/google/uuid"
@@ -23,9 +22,27 @@ func (s *Store) CreateTenant(ctx context.Context, tenant *store.Tenant, hashedKe
 		tenant.RateLimitBurst,
 		tenant.MaxConcurrentExecutions,
 	)
-	if err != nil {
-		fmt.Printf("Error during create a tenant: %v", err)
-	}
+	return err
+}
+
+func (s *Store) UpdateTenant(ctx context.Context, tenant *store.Tenant) error {
+	query := `
+		UPDATE tenants
+		SET name = $2,
+		rate_limit = $3,
+		rate_limit_burst = $4,
+		max_concurrent_executions = $5
+		WHERE id = $1
+	`
+
+	_, err := s.db.ExecContext(ctx,
+		query,
+		tenant.ID,
+		tenant.Name,
+		tenant.RateLimit,
+		tenant.RateLimitBurst,
+		tenant.MaxConcurrentExecutions,
+	)
 	return err
 }
 

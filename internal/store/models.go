@@ -12,10 +12,10 @@ import (
 type Tenant struct {
 	ID                      uuid.UUID
 	Name                    string
-	CreatedAt               time.Time
 	RateLimit               int
 	RateLimitBurst          int
 	MaxConcurrentExecutions int // 0 = unlimited
+	CreatedAt               time.Time
 }
 
 // Job represents a job definition submitted by a tenant.

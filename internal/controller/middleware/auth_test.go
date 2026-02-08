@@ -32,6 +32,10 @@ func (m *mockTenantStore) GetTenantByAPIKeyHash(ctx context.Context, hash string
 	return m.tenant, m.err
 }
 
+func (m *mockTenantStore) UpdateTenant(ctx context.Context, tenant *store.Tenant) error {
+	return m.err
+}
+
 func TestAuthMiddleware_MissingAuthHeader(t *testing.T) {
 	mockStore := &mockTenantStore{}
 	middleware := AuthMiddleware(mockStore)
