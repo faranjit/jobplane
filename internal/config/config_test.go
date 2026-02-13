@@ -31,6 +31,12 @@ func TestLoad_DefaultValues(t *testing.T) {
 	if cfg.HTTPPort != 6161 {
 		t.Errorf("expected HTTPPort 6161, got %d", cfg.HTTPPort)
 	}
+	if cfg.ControllerURL != "http://localhost:6161" {
+		t.Errorf("expected ControllerURL http://localhost:6161, got %s", cfg.ControllerURL)
+	}
+	if cfg.HeartVisibilityExtension != 5*time.Minute {
+		t.Errorf("expected HeartVisibilityExtension 5m, got %v", cfg.HeartVisibilityExtension)
+	}
 	if cfg.WorkerConcurrency != 1 {
 		t.Errorf("expected WorkerConcurrency 1, got %d", cfg.WorkerConcurrency)
 	}
@@ -42,12 +48,6 @@ func TestLoad_DefaultValues(t *testing.T) {
 	}
 	if cfg.WorkerHeartbeatInterval != 2*time.Minute {
 		t.Errorf("expected WorkerHeartbeatInterval 2m, got %v", cfg.WorkerHeartbeatInterval)
-	}
-	if cfg.WorkerVisibilityExtension != 5*time.Minute {
-		t.Errorf("expected WorkerVisibilityExtension 5m, got %v", cfg.WorkerVisibilityExtension)
-	}
-	if cfg.ControllerURL != "http://localhost:6161" {
-		t.Errorf("expected ControllerURL http://localhost:6161, got %s", cfg.ControllerURL)
 	}
 	if cfg.Runtime != "docker" {
 		t.Errorf("expected Runtime docker, got %s", cfg.Runtime)

@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -27,18 +29,16 @@ import (
 
 // AgentConfig holds configuration for the worker agent.
 type AgentConfig struct {
-	ID                  string
-	Concurrency         int
-	PollInterval        time.Duration
-	ControllerURL       string
-	MaxBackoff          time.Duration // Maximum backoff when queue is empty (default: 30s)
-	HeartbeatInterval   time.Duration // Interval between heartbeat calls (default: 2m)
-	VisibilityExtension time.Duration // How long to extend visibility on heartbeat (default: 5m)
+	ID                string
+	Concurrency       int
+	PollInterval      time.Duration
+	ControllerURL     string
+	MaxBackoff        time.Duration // Maximum backoff when queue is empty (default: 30s)
+	HeartbeatInterval time.Duration // Interval between heartbeat calls (default: 2m)
 }
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
 type Agent struct {
-	queue      store.Queue
 	runtime    runtime.Runtime
 	config     AgentConfig
 	tenantIDs  []uuid.UUID
@@ -54,7 +54,7 @@ type executionPayload struct {
 
 // New creates a new worker agent.
 // tenantIDs: Optional. If provided, this worker only pulls jobs for these specific tenants.
-func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid.UUID) *Agent {
+func New(rt runtime.Runtime, config AgentConfig, tenantIDs []uuid.UUID) *Agent {
 	if config.Concurrency <= 0 {
 		config.Concurrency = 1
 	}
@@ -71,17 +71,12 @@ func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid
 		config.HeartbeatInterval = 2 * time.Minute
 	}
 
-	if config.VisibilityExtension <= 0 {
-		config.VisibilityExtension = 5 * time.Minute
-	}
-
 	// Ensure no trailing slash
 	if len(config.ControllerURL) > 0 && config.ControllerURL[len(config.ControllerURL)-1] == '/' {
 		config.ControllerURL = config.ControllerURL[:len(config.ControllerURL)-1]
 	}
 
 	return &Agent{
-		queue:     q,
 		runtime:   rt,
 		config:    config,
 		tenantIDs: tenantIDs,
@@ -139,9 +134,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			// Batch dequeue up to available slots
-			items, err := a.queue.DequeueBatch(ctx, a.tenantIDs, availableSlots)
+			items, err := a.fetchWork(ctx, availableSlots)
 			if err != nil {
-				log.Printf("DequeueBatch error: %v", err)
+				log.Printf("fetchWork error: %v", err)
 				continue
 			}
 
@@ -186,6 +181,40 @@ func (a *Agent) Done() <-chan struct{} {
 	return a.done
 }
 
+// fetchWork calls the Controller API to claim pending executions.
+func (a *Agent) fetchWork(ctx context.Context, limit int) ([]api.DequeuedExecution, error) {
+	url := fmt.Sprintf("%s/internal/executions/dequeue", a.config.ControllerURL)
+
+	body := api.DequeueRequest{
+		Limit:     limit,
+		TenantIDs: a.tenantIDs,
+	}
+	reqBody, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	var dequeueResponse api.DequeueResponse
+	if err := json.NewDecoder(resp.Body).Decode(&dequeueResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return dequeueResponse.Executions, nil
+}
+
 // processItem processes a single execution that has already been dequeued.
 func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.RawMessage) {
 	var wrapper executionPayload
@@ -207,7 +236,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 		// Fallback: Try unmarshaling directly to Job (old format / backward compatibility)
 		if err := json.Unmarshal(payload, &jobDef); err != nil {
 			log.Printf("Failed to unmarshal job payload: %v", err)
-			a.queue.Fail(ctx, nil, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
+			a.sendResult(ctx, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
 			return
 		}
 		traceCtx = ctx
@@ -277,7 +306,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	handle, err := a.runtime.Start(execContext, runtimeOpts)
 	if err != nil {
 		log.Printf("Failed to start runtime for %s: %v", execID, err)
-		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
+		a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
 		return // status already defaults to "failure"
 	}
 
@@ -313,12 +342,12 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer stopCancel()
 			handle.Stop(stopCtx)
-			a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Execution timed out after %v", timeout))
+			a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Execution timed out after %v", timeout))
 			return
 		}
 
 		log.Printf("Runtime waiting error for %s: %v", execID, err)
-		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Runtime waiting error: %v", err))
+		a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Runtime waiting error: %v", err))
 		return
 	}
 
@@ -328,7 +357,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	if result.ExitCode == 0 {
 		log.Printf("Execution %s completed successfully", execID)
 		status = "success" // This will be captured by the deferred function
-		a.queue.Complete(context.Background(), nil, execID, 0)
+		a.sendResult(context.Background(), execID, &result.ExitCode, "")
 	} else {
 		log.Printf("Execution %s failed with code %d", execID, result.ExitCode)
 		errorMessage := fmt.Sprintf("Exit code %d", result.ExitCode)
@@ -337,8 +366,25 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			span.RecordError(result.Error)
 		}
 		// status already defaults to "failure"
-		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
+		a.sendResult(context.Background(), execID, &result.ExitCode, errorMessage)
 	}
+}
+
+func (a *Agent) sendResult(ctx context.Context, executionID uuid.UUID, exitCode *int, errMsg string) error {
+	url := fmt.Sprintf("%s/internal/executions/%s/result", a.config.ControllerURL, executionID)
+
+	body := api.ExecutionResultRequest{
+		ExitCode: exitCode,
+		Error:    errMsg,
+	}
+	reqBody, _ := json.Marshal(body)
+	resp, err := a.doWithRetry(ctx, http.MethodPut, url, reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to send result after retries: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return nil
 }
 
 // runHeartbeat refreshes the visibility timeout periodically while a job is executing.
@@ -347,15 +393,19 @@ func (a *Agent) runHeartbeat(ctx context.Context, execID uuid.UUID) {
 	ticker := time.NewTicker(a.config.HeartbeatInterval)
 	defer ticker.Stop()
 
+	url := fmt.Sprintf("%s/internal/executions/%s/heartbeat", a.config.ControllerURL, execID)
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			// Extend visibility timeout
-			visibleAfter := time.Now().Add(a.config.VisibilityExtension)
-			if err := a.queue.SetVisibleAfter(context.Background(), nil, execID, visibleAfter); err != nil {
-				log.Printf("Heartbeat failed for %s: %v", execID, err)
+			resp, err := a.doWithRetry(ctx, http.MethodPut, url, nil)
+			if err != nil {
+				log.Printf("CRITICAL: Heartbeat failed permanently for %s: %v", execID, err)
+			} else {
+				defer resp.Body.Close()
 			}
 		}
 	}
@@ -458,4 +508,74 @@ func (a *Agent) sendLogs(ctx context.Context, executionID uuid.UUID, content str
 	}
 
 	return nil
+}
+
+// doWithRetry executes an HTTP request with exponential backoff and jitter.
+// re-creates the request on every attempt to prevent closed-body panics.
+func (a *Agent) doWithRetry(ctx context.Context, method, url string, body []byte) (*http.Response, error) {
+	const maxRetries = 5
+	const baseBackoff = 1 * time.Second
+	const maxBackoff = 30 * time.Second
+
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// calculate backoff
+			backoff := time.Duration(float64(baseBackoff) * math.Pow(2, float64(attempt-1)))
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+
+			// add jitter up to %20
+			jitter := time.Duration(rand.Float64() * float64(backoff) * 0.2)
+			backoff += jitter
+
+			log.Printf("HTTP request to %s failed, retrying in %v (attempt %d/%d): %v", url, backoff, attempt, maxRetries, lastErr)
+
+			// wait for backoff or cancellation
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
+			}
+		}
+
+		var req *http.Request
+		var err error
+
+		if body != nil {
+			req, err = http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req, err = http.NewRequestWithContext(ctx, method, url, nil)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// check status codes
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("server returned retriable status %d", resp.StatusCode)
+			resp.Body.Close()
+			continue
+		}
+
+		if resp.StatusCode >= 400 {
+			// Fatal client error, do not retry
+			defer resp.Body.Close()
+			return nil, fmt.Errorf("server returned fatal status %d", resp.StatusCode)
+		}
+
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("max retries (%d) exceeded: %w", maxRetries, lastErr)
 }

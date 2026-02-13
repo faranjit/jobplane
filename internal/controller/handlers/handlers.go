@@ -8,6 +8,7 @@ import (
 	"jobplane/pkg/api"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,9 +22,15 @@ type StoreFactory interface {
 	store.Queue
 }
 
+// HandlerConfig holds configuration related to handlers.
+type HandlerConfig struct {
+	VisibilityExtension time.Duration // How long to extend visibility on heartbeat (default: 5m)
+}
+
 // Handlers holds all HTTP handlers and their dependencies.
 type Handlers struct {
 	store     StoreFactory
+	config    HandlerConfig
 	callbacks Callbacks
 }
 
@@ -35,8 +42,8 @@ type Callbacks struct {
 }
 
 // New creates a new Handlers instance with the given store dependency.
-func New(s StoreFactory) *Handlers {
-	return &Handlers{store: s}
+func New(s StoreFactory, c HandlerConfig) *Handlers {
+	return &Handlers{store: s, config: c}
 }
 
 // WithCallbacks returns a new Handlers instance with the given callbacks.

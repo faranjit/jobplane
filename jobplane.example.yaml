@@ -29,8 +29,8 @@ worker_max_backoff: "30s"
 worker_heartbeat_interval: "2m"
 
 # How long to extend visibility timeout on each heartbeat
-# Env: WORKER_VISIBILITY_EXTENSION
-worker_visibility_extension: "5m"
+# Env: HEARTBEAT_VISIBILITY_EXTENSION
+heartbeat_visibility_extension: "5m"
 
 # URL of the Control Plane
 # Env: CONTROLLER_URL

@@ -61,6 +61,9 @@ type mockStore struct {
 	capturedLimit        int
 	capturedVisibleAfter time.Time
 	capturedPriority     int
+
+	dequeueBatchResp []store.QueueItem
+	dequeueBatchErr  error
 }
 
 func (m *mockStore) BeginTx(ctx context.Context) (store.Tx, error) {
@@ -110,7 +113,7 @@ func (m *mockStore) UpdateTenant(ctx context.Context, tenant *store.Tenant) erro
 }
 
 func (m *mockStore) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
-	return nil, nil
+	return m.dequeueBatchResp, m.dequeueBatchErr
 }
 
 func (m *mockStore) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {
@@ -128,6 +131,7 @@ func (m *mockStore) GetExecutionLogs(ctx context.Context, executionID uuid.UUID,
 }
 
 func (m *mockStore) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {
+	m.capturedVisibleAfter = visibleAfter
 	return m.setVisibleErr
 }
 

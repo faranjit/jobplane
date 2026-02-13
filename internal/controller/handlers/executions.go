@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"jobplane/internal/controller/middleware"
 	"jobplane/pkg/api"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -138,6 +139,47 @@ func (h *Handlers) RetryDQLExecution(w http.ResponseWriter, r *http.Request) {
 // These should NOT use the Tenant Middleware.
 // ---------------------------------------------------------
 
+// InternalDequeue handles POST /internal/executions/dequeue.
+// Workers call this endpoint to claim pending jobs.
+func (h *Handlers) InternalDequeue(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req api.DequeueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.httpError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Sanity check the concurrency limit to prevent resource exhaustion or abuse
+	if req.Limit <= 0 {
+		req.Limit = 1
+	}
+	if req.Limit > 100 { // Max batch size
+		req.Limit = 100
+	}
+
+	items, err := h.store.DequeueBatch(ctx, req.TenantIDs, req.Limit)
+	if err != nil {
+		// Log the actual error internally, but return a generic 500 to the worker
+		log.Printf("Failed to dequeue executions: %v", err)
+		h.httpError(w, "Failed to dequeue executions", http.StatusInternalServerError)
+		return
+	}
+
+	resp := api.DequeueResponse{
+		Executions: make([]api.DequeuedExecution, 0, len(items)),
+	}
+
+	for _, item := range items {
+		resp.Executions = append(resp.Executions, api.DequeuedExecution{
+			ExecutionID: item.ExecutionID,
+			Payload:     item.Payload,
+		})
+	}
+
+	h.respondJson(w, http.StatusOK, resp)
+}
+
 // InternalHeartbeat handles PUT /internal/executions/{id}/heartbeat.
 // The worker calls this to say "I'm still working on it, don't give it to anyone else."
 func (h *Handlers) InternalHeartbeat(w http.ResponseWriter, r *http.Request) {
@@ -150,8 +192,8 @@ func (h *Handlers) InternalHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extend visibility by 5 minutes from now
-	newVisibility := time.Now().Add(5 * time.Minute)
+	// Extend visibility by some time from now
+	newVisibility := time.Now().Add(h.config.VisibilityExtension)
 
 	if err := h.store.SetVisibleAfter(ctx, nil, executionID, newVisibility); err != nil {
 		h.httpError(w, "Failed to update heartbeat", http.StatusInternalServerError)
@@ -173,23 +215,20 @@ func (h *Handlers) InternalUpdateResult(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req struct {
-		ExitCode int    `json:"exit_code"`
-		Error    string `json:"error"`
-	}
+	var req api.ExecutionResultRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.httpError(w, "Invalid body", http.StatusBadRequest)
 		return
 	}
 
-	if req.ExitCode == 0 && req.Error == "" {
-		err := h.store.Complete(ctx, nil, executionID, req.ExitCode)
+	if req.ExitCode != nil && *req.ExitCode == 0 && req.Error == "" {
+		err := h.store.Complete(ctx, nil, executionID, 0)
 		if err != nil {
 			h.httpError(w, "Failed to mark complete", http.StatusInternalServerError)
 			return
 		}
 	} else {
-		err := h.store.Fail(ctx, nil, executionID, &req.ExitCode, req.Error)
+		err := h.store.Fail(ctx, nil, executionID, req.ExitCode, req.Error)
 		if err != nil {
 			h.httpError(w, "Failed to mark failed", http.StatusInternalServerError)
 			return

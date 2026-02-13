@@ -14,7 +14,6 @@ import (
 
 	"jobplane/internal/config"
 	"jobplane/internal/observability"
-	"jobplane/internal/store/postgres"
 	"jobplane/internal/worker"
 	"jobplane/internal/worker/runtime"
 )
@@ -42,12 +41,6 @@ func main() {
 			log.Printf("Failed to shutdown tracer: %v", err)
 		}
 	}()
-
-	store, err := postgres.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("Failed to create database connection: %v", err)
-	}
-	defer store.Close()
 
 	// Select runtime based on configuration
 	var rt runtime.Runtime
@@ -78,13 +71,12 @@ func main() {
 		log.Println("Using docker runtime")
 	}
 
-	agent := worker.New(store, rt, worker.AgentConfig{
-		Concurrency:         cfg.WorkerConcurrency,
-		PollInterval:        cfg.WorkerPollInterval,
-		ControllerURL:       cfg.ControllerURL,
-		MaxBackoff:          cfg.WorkerMaxBackoff,
-		HeartbeatInterval:   cfg.WorkerHeartbeatInterval,
-		VisibilityExtension: cfg.WorkerVisibilityExtension,
+	agent := worker.New(rt, worker.AgentConfig{
+		Concurrency:       cfg.WorkerConcurrency,
+		PollInterval:      cfg.WorkerPollInterval,
+		ControllerURL:     cfg.ControllerURL,
+		MaxBackoff:        cfg.WorkerMaxBackoff,
+		HeartbeatInterval: cfg.WorkerHeartbeatInterval,
 	}, nil)
 
 	log.Printf("Worker started with concurrency %d", cfg.WorkerConcurrency)

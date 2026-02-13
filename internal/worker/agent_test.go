@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +16,7 @@ import (
 
 	"jobplane/internal/store"
 	"jobplane/internal/worker/runtime"
+	"jobplane/pkg/api"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -29,9 +32,8 @@ type MockQueue struct {
 	DequeueBatchFunc func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error)
 
 	// Track method calls
-	CompleteCalls        []CompleteCall
-	FailCalls            []FailCall
-	SetVisibleAfterCalls []SetVisibleAfterCall
+	CompleteCalls []CompleteCall
+	FailCalls     []FailCall
 }
 
 type CompleteCall struct {
@@ -45,40 +47,23 @@ type FailCall struct {
 	ErrMsg      string
 }
 
-type SetVisibleAfterCall struct {
-	ExecutionID  uuid.UUID
-	VisibleAfter time.Time
-}
-
 func (m *MockQueue) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error) {
 	return 0, nil
 }
 
 func (m *MockQueue) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
-	if m.DequeueBatchFunc != nil {
-		return m.DequeueBatchFunc(ctx, tenantIDs, limit)
-	}
 	return nil, nil
 }
 
 func (m *MockQueue) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.CompleteCalls = append(m.CompleteCalls, CompleteCall{ExecutionID: executionID, ExitCode: exitCode})
 	return nil
 }
 
 func (m *MockQueue) Fail(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode *int, errMsg string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.FailCalls = append(m.FailCalls, FailCall{ExecutionID: executionID, ExitCode: exitCode, ErrMsg: errMsg})
 	return nil
 }
 
 func (m *MockQueue) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.SetVisibleAfterCalls = append(m.SetVisibleAfterCalls, SetVisibleAfterCall{ExecutionID: executionID, VisibleAfter: visibleAfter})
 	return nil
 }
 
@@ -126,9 +111,28 @@ func (m *MockHandle) StreamLogs(ctx context.Context) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
+// setupTestAgent creates a mocked controller server and an Agent configured to talk to it.
+func setupTestAgent(t *testing.T, rt runtime.Runtime) *Agent {
+	t.Helper()
+
+	// mock api
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Cleanup(func() {
+		server.Close()
+	})
+
+	agent := New(rt, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
+	return agent
+}
+
 // Test: New() Function
 func TestNew_DefaultConcurrency(t *testing.T) {
-	agent := New(&MockQueue{}, &MockRuntime{}, AgentConfig{Concurrency: 0}, nil)
+	agent := New(&MockRuntime{}, AgentConfig{Concurrency: 0}, nil)
 
 	if agent.config.Concurrency != 1 {
 		t.Errorf("expected default concurrency=1, got %d", agent.config.Concurrency)
@@ -136,7 +140,7 @@ func TestNew_DefaultConcurrency(t *testing.T) {
 }
 
 func TestNew_DefaultConcurrency_Negative(t *testing.T) {
-	agent := New(&MockQueue{}, &MockRuntime{}, AgentConfig{Concurrency: -5}, nil)
+	agent := New(&MockRuntime{}, AgentConfig{Concurrency: -5}, nil)
 
 	if agent.config.Concurrency != 1 {
 		t.Errorf("expected default concurrency=1, got %d", agent.config.Concurrency)
@@ -144,7 +148,7 @@ func TestNew_DefaultConcurrency_Negative(t *testing.T) {
 }
 
 func TestNew_DefaultPollInterval(t *testing.T) {
-	agent := New(&MockQueue{}, &MockRuntime{}, AgentConfig{PollInterval: 0}, nil)
+	agent := New(&MockRuntime{}, AgentConfig{PollInterval: 0}, nil)
 
 	if agent.config.PollInterval != 1*time.Second {
 		t.Errorf("expected default poll interval=1s, got %v", agent.config.PollInterval)
@@ -152,7 +156,7 @@ func TestNew_DefaultPollInterval(t *testing.T) {
 }
 
 func TestNew_DefaultPollInterval_Negative(t *testing.T) {
-	agent := New(&MockQueue{}, &MockRuntime{}, AgentConfig{PollInterval: -5 * time.Second}, nil)
+	agent := New(&MockRuntime{}, AgentConfig{PollInterval: -5 * time.Second}, nil)
 
 	if agent.config.PollInterval != 1*time.Second {
 		t.Errorf("expected default poll interval=1s, got %v", agent.config.PollInterval)
@@ -167,7 +171,7 @@ func TestNew_CustomConfig(t *testing.T) {
 		PollInterval: 500 * time.Millisecond,
 	}
 
-	agent := New(&MockQueue{}, &MockRuntime{}, config, []uuid.UUID{tenantID})
+	agent := New(&MockRuntime{}, config, []uuid.UUID{tenantID})
 
 	if agent.config.ID != "test-agent" {
 		t.Errorf("expected ID='test-agent', got '%s'", agent.config.ID)
@@ -184,7 +188,7 @@ func TestNew_CustomConfig(t *testing.T) {
 }
 
 func TestNew_DoneChannelInitialized(t *testing.T) {
-	agent := New(&MockQueue{}, &MockRuntime{}, AgentConfig{}, nil)
+	agent := New(&MockRuntime{}, AgentConfig{}, nil)
 
 	if agent.done == nil {
 		t.Error("expected done channel to be initialized")
@@ -201,13 +205,29 @@ func TestNew_DoneChannelInitialized(t *testing.T) {
 
 // Test: Run() Loop Behavior
 func TestRun_GracefulShutdown(t *testing.T) {
-	queue := &MockQueue{
-		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
-			return nil, nil // Empty queue
-		},
-	}
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/executions/dequeue") {
+			var req api.DequeueRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
 
-	agent := New(queue, &MockRuntime{}, AgentConfig{PollInterval: 10 * time.Millisecond}, nil)
+			resp := api.DequeueResponse{
+				Executions: make([]api.DequeuedExecution, 0),
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	agent := New(&MockRuntime{}, AgentConfig{
+		PollInterval:  10 * time.Millisecond,
+		ControllerURL: server.URL,
+	}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -233,13 +253,26 @@ func TestRun_GracefulShutdown(t *testing.T) {
 }
 
 func TestRun_DoneChannelClosed(t *testing.T) {
-	queue := &MockQueue{
-		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
-			return nil, nil // Empty queue
-		},
-	}
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/executions/dequeue") {
+			resp := api.DequeueResponse{
+				Executions: make([]api.DequeuedExecution, 0),
+			}
 
-	agent := New(queue, &MockRuntime{}, AgentConfig{PollInterval: 10 * time.Millisecond}, nil)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	agent := New(&MockRuntime{}, AgentConfig{
+		PollInterval:  10 * time.Millisecond,
+		ControllerURL: server.URL,
+	}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -268,7 +301,7 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
 			// Return 'limit' jobs
 			items := make([]store.QueueItem, limit)
-			for i := 0; i < limit; i++ {
+			for i := range limit {
 				items[i] = store.QueueItem{ExecutionID: uuid.New(), Payload: payload}
 			}
 			return items, nil
@@ -278,6 +311,7 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			current := atomic.AddInt32(&runningJobs, 1)
+
 			mu.Lock()
 			if current > maxConcurrent {
 				maxConcurrent = current
@@ -295,10 +329,39 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 		},
 	}
 
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/executions/dequeue") {
+			var req api.DequeueRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queueItems, _ := queue.DequeueBatchFunc(r.Context(), req.TenantIDs, req.Limit)
+
+			resp := api.DequeueResponse{
+				Executions: make([]api.DequeuedExecution, 0, len(queueItems)),
+			}
+
+			for _, item := range queueItems {
+				resp.Executions = append(resp.Executions, api.DequeuedExecution{
+					ExecutionID: item.ExecutionID,
+					Payload:     item.Payload,
+				})
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	concurrencyLimit := 3
-	agent := New(queue, mockRuntime, AgentConfig{
-		Concurrency:  concurrencyLimit,
-		PollInterval: 10 * time.Millisecond,
+	agent := New(mockRuntime, AgentConfig{
+		Concurrency:   concurrencyLimit,
+		PollInterval:  10 * time.Millisecond,
+		ControllerURL: server.URL,
 	}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -316,8 +379,12 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 		t.Fatal("shutdown timeout")
 	}
 
-	if int(maxConcurrent) > concurrencyLimit {
-		t.Errorf("max concurrent jobs=%d exceeded limit=%d", maxConcurrent, concurrencyLimit)
+	mu.Lock()
+	finalMaxConcurrent := maxConcurrent
+	mu.Unlock()
+
+	if int(finalMaxConcurrent) > concurrencyLimit {
+		t.Errorf("max concurrent jobs=%d exceeded limit=%d", finalMaxConcurrent, concurrencyLimit)
 	}
 }
 
@@ -352,7 +419,38 @@ func TestRun_GracefulDrainInFlight(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{PollInterval: 10 * time.Millisecond}, nil)
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/executions/dequeue") {
+			var req api.DequeueRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queueItems, _ := queue.DequeueBatchFunc(r.Context(), req.TenantIDs, req.Limit)
+
+			resp := api.DequeueResponse{
+				Executions: make([]api.DequeuedExecution, 0, len(queueItems)),
+			}
+
+			for _, item := range queueItems {
+				resp.Executions = append(resp.Executions, api.DequeuedExecution{
+					ExecutionID: item.ExecutionID,
+					Payload:     item.Payload,
+				})
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	agent := New(mockRuntime, AgentConfig{
+		PollInterval:  10 * time.Millisecond,
+		ControllerURL: server.URL,
+	}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -382,7 +480,35 @@ func TestProcessItem_InvalidPayload(t *testing.T) {
 
 	queue := &MockQueue{}
 
-	agent := New(queue, &MockRuntime{}, AgentConfig{}, nil)
+	var capturedExecID uuid.UUID
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queue.FailCalls = append(queue.FailCalls,
+				FailCall{ExecutionID: capturedExecID, ExitCode: req.ExitCode, ErrMsg: req.Error},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	agent := New(&MockRuntime{}, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 	agent.processItem(context.Background(), execID, invalidPayload)
 
 	if len(queue.FailCalls) != 1 {
@@ -400,13 +526,41 @@ func TestProcessItem_RuntimeStartError(t *testing.T) {
 
 	queue := &MockQueue{}
 
+	var capturedExecID uuid.UUID
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queue.FailCalls = append(queue.FailCalls,
+				FailCall{ExecutionID: capturedExecID, ExitCode: req.ExitCode, ErrMsg: req.Error},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return nil, errors.New("failed to pull image")
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := New(mockRuntime, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
@@ -424,6 +578,32 @@ func TestProcessItem_WaitError(t *testing.T) {
 
 	queue := &MockQueue{}
 
+	var capturedExecID uuid.UUID
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queue.FailCalls = append(queue.FailCalls,
+				FailCall{ExecutionID: capturedExecID, ExitCode: req.ExitCode, ErrMsg: req.Error},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return &MockHandle{
@@ -434,7 +614,9 @@ func TestProcessItem_WaitError(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := New(mockRuntime, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
@@ -448,6 +630,36 @@ func TestProcessItem_Success(t *testing.T) {
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo", "hello"}})
 
 	queue := &MockQueue{}
+
+	var capturedExecID uuid.UUID
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			exitCode := -1
+			if req.ExitCode != nil && *req.ExitCode == 0 {
+				exitCode = 0
+			}
+			queue.CompleteCalls = append(queue.CompleteCalls,
+				CompleteCall{ExecutionID: capturedExecID, ExitCode: exitCode},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -473,7 +685,9 @@ func TestProcessItem_Success(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := New(mockRuntime, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.CompleteCalls) != 1 {
@@ -494,6 +708,32 @@ func TestProcessItem_FailedExitCode(t *testing.T) {
 
 	queue := &MockQueue{}
 
+	var capturedExecID uuid.UUID
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queue.FailCalls = append(queue.FailCalls,
+				FailCall{ExecutionID: capturedExecID, ExitCode: req.ExitCode, ErrMsg: req.Error},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return &MockHandle{
@@ -504,7 +744,9 @@ func TestProcessItem_FailedExitCode(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := New(mockRuntime, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
@@ -520,7 +762,33 @@ func TestProcessItem_FailedWithError(t *testing.T) {
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"crash"}})
 
+	var capturedExecID uuid.UUID
+
 	queue := &MockQueue{}
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queue.FailCalls = append(queue.FailCalls,
+				FailCall{ExecutionID: capturedExecID, ExitCode: req.ExitCode, ErrMsg: req.Error},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -535,7 +803,9 @@ func TestProcessItem_FailedWithError(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := New(mockRuntime, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 	agent.processItem(context.Background(), execID, payload)
 
 	if len(queue.FailCalls) != 1 {
@@ -569,6 +839,32 @@ func TestProcessItem_Timeout(t *testing.T) {
 
 	queue := &MockQueue{}
 
+	var capturedExecID uuid.UUID
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/result") {
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID, _ = uuid.Parse(parts[i+1])
+				}
+			}
+
+			var req api.ExecutionResultRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queue.FailCalls = append(queue.FailCalls,
+				FailCall{ExecutionID: capturedExecID, ExitCode: req.ExitCode, ErrMsg: req.Error},
+			)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	var stopCalled int32
 
 	mockRuntime := &MockRuntime{
@@ -587,7 +883,9 @@ func TestProcessItem_Timeout(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := New(mockRuntime, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
 
 	start := time.Now()
 	agent.processItem(context.Background(), execID, payload)
@@ -628,8 +926,6 @@ func TestProcessItem_TimeoutUsesJobDefault(t *testing.T) {
 
 	var capturedTimeout int
 
-	queue := &MockQueue{}
-
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			capturedTimeout = opts.Timeout
@@ -641,7 +937,7 @@ func TestProcessItem_TimeoutUsesJobDefault(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 	agent.processItem(context.Background(), execID, payload)
 
 	if capturedTimeout != customTimeout {
@@ -659,8 +955,6 @@ func TestProcessItem_DefaultTimeoutWhenNotSet(t *testing.T) {
 		Command: []string{"echo"},
 	})
 
-	queue := &MockQueue{}
-
 	var contextDeadline time.Time
 	var hasDeadline bool
 
@@ -675,7 +969,7 @@ func TestProcessItem_DefaultTimeoutWhenNotSet(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 	agent.processItem(context.Background(), execID, payload)
 
 	if !hasDeadline {
@@ -728,9 +1022,39 @@ func TestRun_MultipleConcurrentJobs(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{
-		Concurrency:  5,
-		PollInterval: 5 * time.Millisecond,
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/executions/dequeue") {
+			var req api.DequeueRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			queueItems, _ := queue.DequeueBatchFunc(r.Context(), req.TenantIDs, req.Limit)
+
+			resp := api.DequeueResponse{
+				Executions: make([]api.DequeuedExecution, 0, len(queueItems)),
+			}
+
+			for _, item := range queueItems {
+				resp.Executions = append(resp.Executions, api.DequeuedExecution{
+					ExecutionID: item.ExecutionID,
+					Payload:     item.Payload,
+				})
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	agent := New(mockRuntime, AgentConfig{
+		Concurrency:   5,
+		PollInterval:  5 * time.Millisecond,
+		ControllerURL: server.URL,
 	}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -760,7 +1084,35 @@ func TestHeartbeat_RefreshesVisibilityDuringLongJob(t *testing.T) {
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"sleep"}})
 
-	queue := &MockQueue{}
+	var heartbeatCount int32
+	var capturedExecID string
+	var mu sync.Mutex
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/heartbeat") {
+			mu.Lock()
+			atomic.AddInt32(&heartbeatCount, 1)
+			mu.Unlock()
+
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID = parts[i+1]
+				}
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Handle log shipping too (streamLogs calls sendLogs)
+		if strings.Contains(r.URL.Path, "/logs") {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -774,37 +1126,21 @@ func TestHeartbeat_RefreshesVisibilityDuringLongJob(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{
-		HeartbeatInterval:   50 * time.Millisecond, // Short interval for testing
-		VisibilityExtension: 5 * time.Minute,       // Explicit extension time
+	agent := New(mockRuntime, AgentConfig{
+		HeartbeatInterval: 50 * time.Millisecond, // Short interval for testing
+		ControllerURL:     server.URL,
 	}, nil)
 
 	agent.processItem(context.Background(), execID, payload)
 
 	// Heartbeat should have been called at least once (150ms job / 50ms interval = ~2 calls)
-	queue.mu.Lock()
-	heartbeatCalls := len(queue.SetVisibleAfterCalls)
-	queue.mu.Unlock()
-
-	if heartbeatCalls < 1 {
-		t.Errorf("expected at least 1 heartbeat call during long job, got %d", heartbeatCalls)
+	count := atomic.LoadInt32(&heartbeatCount)
+	if count < 1 {
+		t.Errorf("expected at least 1 heartbeat call during long job, got %d", count)
 	}
 
-	// Verify heartbeat was for the correct execution
-	if heartbeatCalls > 0 {
-		queue.mu.Lock()
-		firstCall := queue.SetVisibleAfterCalls[0]
-		queue.mu.Unlock()
-
-		if firstCall.ExecutionID != execID {
-			t.Errorf("heartbeat called with wrong execution ID: got %s, want %s", firstCall.ExecutionID, execID)
-		}
-
-		// Visibility should be extended ~5 minutes into the future (based on VisibilityExtension config)
-		expectedMin := time.Now().Add(4 * time.Minute)
-		if firstCall.VisibleAfter.Before(expectedMin) {
-			t.Errorf("heartbeat visibility extension too short: %v", firstCall.VisibleAfter)
-		}
+	if capturedExecID != execID.String() {
+		t.Errorf("heartbeat sent for wrong execution: got %s, want %s", capturedExecID, execID.String())
 	}
 }
 
@@ -812,8 +1148,6 @@ func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo"}})
-
-	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
@@ -826,8 +1160,27 @@ func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
 		},
 	}
 
-	agent := New(queue, mockRuntime, AgentConfig{
+	var heartbeatCount int32
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/heartbeat") {
+			atomic.AddInt32(&heartbeatCount, 1)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Handle log shipping too (streamLogs calls sendLogs)
+		if strings.Contains(r.URL.Path, "/logs") {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	agent := New(mockRuntime, AgentConfig{
 		HeartbeatInterval: 5 * time.Second, // Long interval - job will complete before it fires
+		ControllerURL:     server.URL,
 	}, nil)
 
 	agent.processItem(context.Background(), execID, payload)
@@ -835,13 +1188,9 @@ func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
 	// Wait a bit to ensure no delayed heartbeat
 	time.Sleep(50 * time.Millisecond)
 
-	queue.mu.Lock()
-	heartbeatCalls := len(queue.SetVisibleAfterCalls)
-	queue.mu.Unlock()
-
 	// No heartbeat should have been called for a fast job
-	if heartbeatCalls != 0 {
-		t.Errorf("expected 0 heartbeat calls for fast job, got %d", heartbeatCalls)
+	if heartbeatCount != 0 {
+		t.Errorf("expected 0 heartbeat calls for fast job, got %d", heartbeatCount)
 	}
 }
 
@@ -851,10 +1200,8 @@ func TestProcessItem_Metrics(t *testing.T) {
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	otel.SetMeterProvider(provider)
 
-	q := &MockQueue{}
-
 	// Mock Runtime that "runs" instantly
-	rt := &MockRuntime{
+	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return &MockHandle{
 				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
@@ -864,7 +1211,7 @@ func TestProcessItem_Metrics(t *testing.T) {
 		},
 	}
 
-	agent := New(q, rt, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 
 	// Create Payload with tenant ID to verify attributes
 	tenantID := uuid.New()
@@ -954,10 +1301,8 @@ func TestProcessItem_Metrics_Failure(t *testing.T) {
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	otel.SetMeterProvider(provider)
 
-	q := &MockQueue{}
-
 	// Mock Runtime that fails
-	rt := &MockRuntime{
+	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return &MockHandle{
 				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
@@ -967,7 +1312,7 @@ func TestProcessItem_Metrics_Failure(t *testing.T) {
 		},
 	}
 
-	agent := New(q, rt, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 
 	job := store.Job{ID: uuid.New(), Name: "failing-job", Image: "img", TenantID: uuid.New()}
 	payloadBytes, _ := json.Marshal(job)
@@ -994,5 +1339,92 @@ func TestProcessItem_Metrics_Failure(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAgent_doWithRetry(t *testing.T) {
+	tests := []struct {
+		name          string
+		responses     []int
+		expectError   bool
+		expectedCalls int
+		timeout       time.Duration
+	}{
+		{
+			name:          "Success on First Try",
+			responses:     []int{200},
+			expectError:   false,
+			expectedCalls: 1,
+		},
+		{
+			name:          "Retry Once then Success (500 -> 200)",
+			responses:     []int{500, 200},
+			expectError:   false,
+			expectedCalls: 2, // Should retry once
+		},
+		{
+			name:          "Fail Fast on 400 (Bad Request)",
+			responses:     []int{400},
+			expectError:   true,
+			expectedCalls: 1, // Should NOT retry
+		},
+		{
+			name:          "Fail Fast on 401 (Unauthorized)",
+			responses:     []int{401},
+			expectError:   true,
+			expectedCalls: 1, // Should NOT retry
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+
+			// a mock server that returns different codes in sequence
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				count := callCount
+				callCount++
+
+				if count < len(tt.responses) {
+					w.WriteHeader(tt.responses[count])
+				} else {
+					w.WriteHeader(500)
+				}
+			}))
+			defer server.Close()
+
+			agent := New(nil, AgentConfig{
+				ControllerURL: server.URL,
+			}, nil)
+
+			// create context
+			ctx := context.Background()
+			if tt.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.timeout)
+				defer cancel()
+			}
+
+			// Run doWithRetry
+			resp, err := agent.doWithRetry(ctx, http.MethodGet, server.URL, nil)
+
+			// assertions
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if resp.Body != nil {
+					resp.Body.Close()
+				}
+			}
+
+			if callCount != tt.expectedCalls {
+				t.Errorf("expected %d HTTP calls, got %d", tt.expectedCalls, callCount)
+			}
+		})
 	}
 }

@@ -56,7 +56,7 @@ func TestCreateTenant(t *testing.T) {
 				tt.mockSetup(mock)
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			// Request
 			req := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewBufferString(tt.body))
@@ -146,7 +146,7 @@ func TestUpdateTenant(t *testing.T) {
 			}
 
 			tenantID := uuid.New()
-			h := New(mock).WithCallbacks(Callbacks{
+			h := New(mock, HandlerConfig{}).WithCallbacks(Callbacks{
 				OnTenantUpdated: func(u uuid.UUID) {
 					tt.callback(tenantID, u)
 				},

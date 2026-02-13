@@ -63,7 +63,7 @@ func TestInternalAddLogs(t *testing.T) {
 				tt.mockSetup(mock)
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /internal/executions/{id}/logs", h.InternalAddLogs)
@@ -158,7 +158,7 @@ func TestGetLogs(t *testing.T) {
 				tt.mockSetup(mock)
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("GET /executions/{id}/logs", h.GetExecutionLogs)

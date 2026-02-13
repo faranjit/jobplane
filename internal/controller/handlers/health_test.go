@@ -43,7 +43,7 @@ func TestProbes(t *testing.T) {
 			if tt.mockSetup != nil {
 				tt.mockSetup(mock)
 			}
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			req := httptest.NewRequest(http.MethodGet, tt.endpoint, nil)
 			rr := httptest.NewRecorder()
