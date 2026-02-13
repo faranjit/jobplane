@@ -1086,11 +1086,15 @@ func TestHeartbeat_RefreshesVisibilityDuringLongJob(t *testing.T) {
 
 	var heartbeatCount int32
 	var capturedExecID string
+	var mu sync.Mutex
 
 	// Mock controller HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/heartbeat") {
+			mu.Lock()
 			atomic.AddInt32(&heartbeatCount, 1)
+			mu.Unlock()
+
 			// Extract execution ID from path
 			parts := strings.Split(r.URL.Path, "/")
 			for i, p := range parts {
