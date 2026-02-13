@@ -2,7 +2,12 @@
 // This package is shared between the CLI and Controller.
 package api
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // CreateTenantRequest is the request body for creating a new tenant.
 type CreateTenantRequest struct {
@@ -79,6 +84,27 @@ type ExecutionResponse struct {
 type ExecutionResultRequest struct {
 	ExitCode *int   `json:"exit_code"`
 	Error    string `json:"error"`
+}
+
+// DequeueRequest represents the payload sent by a worker to claim new jobs.
+type DequeueRequest struct {
+	// Limit is the maximum number of executions the worker can currently accept.
+	Limit int `json:"limit"`
+
+	// TenantIDs restricts the claimed jobs to specific tenants.
+	// If empty, the worker pulls jobs for all tenants.
+	TenantIDs []uuid.UUID `json:"tenant_ids,omitempty"`
+}
+
+// DequeuedExecution represents a single claimed execution returned to the worker.
+type DequeuedExecution struct {
+	ExecutionID uuid.UUID       `json:"execution_id"`
+	Payload     json.RawMessage `json:"payload"` // Contains the store.Job and Trace context
+}
+
+// DequeueResponse is the payload returned by the Controller containing the claimed jobs.
+type DequeueResponse struct {
+	Executions []DequeuedExecution `json:"executions"`
 }
 
 // ErrorResponse is the standard error response format.

@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"jobplane/internal/controller/middleware"
 	"jobplane/internal/store"
+	"jobplane/pkg/api"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -92,6 +94,112 @@ func TestGetExecution(t *testing.T) {
 			// Assertions
 			if rr.Code != tt.expectedStatus {
 				t.Errorf("handler returned wrong status code: got %d want %d", rr.Code, tt.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestInternalDequeue(t *testing.T) {
+	tenantID := uuid.New()
+	execID := uuid.New()
+	payload := json.RawMessage(`{"job":{"id":"` + uuid.New().String() + `"}}`)
+
+	tests := []struct {
+		name           string
+		reqBody        any
+		mockSetup      func(*mockStore)
+		expectedStatus int
+		expectCount    int
+	}{
+		{
+			name: "Success - Returns Claimed Executions",
+			reqBody: api.DequeueRequest{
+				Limit:     5,
+				TenantIDs: []uuid.UUID{tenantID},
+			},
+			mockSetup: func(m *mockStore) {
+				m.dequeueBatchResp = []store.QueueItem{
+					{ExecutionID: execID, Payload: payload},
+					{ExecutionID: execID, Payload: payload},
+				}
+			},
+			expectedStatus: http.StatusOK,
+			expectCount:    2,
+		},
+		{
+			name: "Success - Empty Queue (Returns 200 with 0 items)",
+			reqBody: api.DequeueRequest{
+				Limit: 5,
+			},
+			mockSetup: func(m *mockStore) {
+				m.dequeueBatchResp = []store.QueueItem{}
+			},
+			expectedStatus: http.StatusOK,
+			expectCount:    0,
+		},
+		{
+			name:    "Invalid JSON Body",
+			reqBody: "this-is-not-json",
+			mockSetup: func(m *mockStore) {
+				// Should not reach the store
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Store Error - Returns 500",
+			reqBody: api.DequeueRequest{
+				Limit: 1,
+			},
+			mockSetup: func(m *mockStore) {
+				m.dequeueBatchErr = errors.New("database connection lost")
+			},
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockStore{}
+			if tt.mockSetup != nil {
+				tt.mockSetup(mock)
+			}
+
+			h := New(mock, HandlerConfig{})
+
+			var bodyBytes []byte
+			if str, ok := tt.reqBody.(string); ok {
+				bodyBytes = []byte(str)
+			} else {
+				bodyBytes, _ = json.Marshal(tt.reqBody)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/internal/executions/dequeue", bytes.NewBuffer(bodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			h.InternalDequeue(rr, req)
+
+			if rr.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			}
+
+			// For successful responses, verify the payload structure
+			if rr.Code == http.StatusOK {
+				var resp api.DequeueResponse
+				if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+
+				if len(resp.Executions) != tt.expectCount {
+					t.Errorf("expected %d executions, got %d", tt.expectCount, len(resp.Executions))
+				}
+
+				// If we expected items, do a quick sanity check on the ID
+				if tt.expectCount > 0 {
+					if resp.Executions[0].ExecutionID != execID {
+						t.Errorf("expected execution ID %s, got %s", execID, resp.Executions[0].ExecutionID)
+					}
+				}
 			}
 		})
 	}

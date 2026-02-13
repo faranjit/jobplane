@@ -37,7 +37,6 @@ type AgentConfig struct {
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
 type Agent struct {
-	queue      store.Queue
 	runtime    runtime.Runtime
 	config     AgentConfig
 	tenantIDs  []uuid.UUID
@@ -53,7 +52,7 @@ type executionPayload struct {
 
 // New creates a new worker agent.
 // tenantIDs: Optional. If provided, this worker only pulls jobs for these specific tenants.
-func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid.UUID) *Agent {
+func New(rt runtime.Runtime, config AgentConfig, tenantIDs []uuid.UUID) *Agent {
 	if config.Concurrency <= 0 {
 		config.Concurrency = 1
 	}
@@ -76,7 +75,6 @@ func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid
 	}
 
 	return &Agent{
-		queue:     q,
 		runtime:   rt,
 		config:    config,
 		tenantIDs: tenantIDs,
@@ -134,9 +132,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			// Batch dequeue up to available slots
-			items, err := a.queue.DequeueBatch(ctx, a.tenantIDs, availableSlots)
+			items, err := a.fetchWork(ctx, availableSlots)
 			if err != nil {
-				log.Printf("DequeueBatch error: %v", err)
+				log.Printf("fetchWork error: %v", err)
 				continue
 			}
 
@@ -179,6 +177,40 @@ func (a *Agent) Run(ctx context.Context) error {
 // Done returns a channel that is closed when the agent has fully stopped.
 func (a *Agent) Done() <-chan struct{} {
 	return a.done
+}
+
+// fetchWork calls the Controller API to claim pending executions.
+func (a *Agent) fetchWork(ctx context.Context, limit int) ([]api.DequeuedExecution, error) {
+	url := fmt.Sprintf("%s/internal/executions/dequeue", a.config.ControllerURL)
+
+	body := api.DequeueRequest{
+		Limit:     limit,
+		TenantIDs: a.tenantIDs,
+	}
+	reqBody, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	var dequeueResponse api.DequeueResponse
+	if err := json.NewDecoder(resp.Body).Decode(&dequeueResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return dequeueResponse.Executions, nil
 }
 
 // processItem processes a single execution that has already been dequeued.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"jobplane/internal/controller/middleware"
 	"jobplane/pkg/api"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -137,6 +138,47 @@ func (h *Handlers) RetryDQLExecution(w http.ResponseWriter, r *http.Request) {
 // Internal Worker Endpoints
 // These should NOT use the Tenant Middleware.
 // ---------------------------------------------------------
+
+// InternalDequeue handles POST /internal/executions/dequeue.
+// Workers call this endpoint to claim pending jobs.
+func (h *Handlers) InternalDequeue(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req api.DequeueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.httpError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Sanity check the concurrency limit to prevent resource exhaustion or abuse
+	if req.Limit <= 0 {
+		req.Limit = 1
+	}
+	if req.Limit > 100 { // Max batch size
+		req.Limit = 100
+	}
+
+	items, err := h.store.DequeueBatch(ctx, req.TenantIDs, req.Limit)
+	if err != nil {
+		// Log the actual error internally, but return a generic 500 to the worker
+		log.Printf("Failed to dequeue executions: %v", err)
+		h.httpError(w, "Failed to dequeue executions", http.StatusInternalServerError)
+		return
+	}
+
+	resp := api.DequeueResponse{
+		Executions: make([]api.DequeuedExecution, 0, len(items)),
+	}
+
+	for _, item := range items {
+		resp.Executions = append(resp.Executions, api.DequeuedExecution{
+			ExecutionID: item.ExecutionID,
+			Payload:     item.Payload,
+		})
+	}
+
+	h.respondJson(w, http.StatusOK, resp)
+}
 
 // InternalHeartbeat handles PUT /internal/executions/{id}/heartbeat.
 // The worker calls this to say "I'm still working on it, don't give it to anyone else."
