@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -376,22 +378,11 @@ func (a *Agent) sendResult(ctx context.Context, executionID uuid.UUID, exitCode 
 		Error:    errMsg,
 	}
 	reqBody, _ := json.Marshal(body)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewBuffer(reqBody))
+	resp, err := a.doWithRetry(ctx, http.MethodPut, url, reqBody)
 	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return err
+		return fmt.Errorf("failed to send result after retries: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("api returned status %d", resp.StatusCode)
-	}
 
 	return nil
 }
@@ -402,39 +393,22 @@ func (a *Agent) runHeartbeat(ctx context.Context, execID uuid.UUID) {
 	ticker := time.NewTicker(a.config.HeartbeatInterval)
 	defer ticker.Stop()
 
+	url := fmt.Sprintf("%s/internal/executions/%s/heartbeat", a.config.ControllerURL, execID)
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			// Extend visibility timeout
-			if err := a.sendHeartBeat(ctx, execID); err != nil {
-				log.Printf("Heartbeat failed for %s: %v", execID, err)
+			resp, err := a.doWithRetry(ctx, http.MethodPut, url, nil)
+			if err != nil {
+				log.Printf("CRITICAL: Heartbeat failed permanently for %s: %v", execID, err)
+			} else {
+				defer resp.Body.Close()
 			}
 		}
 	}
-}
-
-func (a *Agent) sendHeartBeat(ctx context.Context, executionID uuid.UUID) error {
-	url := fmt.Sprintf("%s/internal/executions/%s/heartbeat", a.config.ControllerURL, executionID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("api returned status %d", resp.StatusCode)
-	}
-
-	return nil
 }
 
 func (a *Agent) streamLogs(ctx context.Context, executionID uuid.UUID, handle runtime.Handle) {
@@ -534,4 +508,74 @@ func (a *Agent) sendLogs(ctx context.Context, executionID uuid.UUID, content str
 	}
 
 	return nil
+}
+
+// doWithRetry executes an HTTP request with exponential backoff and jitter.
+// re-creates the request on every attempt to prevent closed-body panics.
+func (a *Agent) doWithRetry(ctx context.Context, method, url string, body []byte) (*http.Response, error) {
+	const maxRetries = 5
+	const baseBackoff = 1 * time.Second
+	const maxBackoff = 30 * time.Second
+
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// calculate backoff
+			backoff := time.Duration(float64(baseBackoff) * math.Pow(2, float64(attempt-1)))
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+
+			// add jitter up to %20
+			jitter := time.Duration(rand.Float64() * float64(backoff) * 0.2)
+			backoff += jitter
+
+			log.Printf("HTTP request to %s failed, retrying in %v (attempt %d/%d): %v", url, backoff, attempt, maxRetries, lastErr)
+
+			// wait for backoff or cancellation
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
+			}
+		}
+
+		var req *http.Request
+		var err error
+
+		if body != nil {
+			req, err = http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req, err = http.NewRequestWithContext(ctx, method, url, nil)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// check status codes
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("server returned retriable status %d", resp.StatusCode)
+			resp.Body.Close()
+			continue
+		}
+
+		if resp.StatusCode >= 400 {
+			// Fatal client error, do not retry
+			defer resp.Body.Close()
+			return nil, fmt.Errorf("server returned fatal status %d", resp.StatusCode)
+		}
+
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("max retries (%d) exceeded: %w", maxRetries, lastErr)
 }

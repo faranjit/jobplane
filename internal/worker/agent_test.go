@@ -111,6 +111,25 @@ func (m *MockHandle) StreamLogs(ctx context.Context) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
+// setupTestAgent creates a mocked controller server and an Agent configured to talk to it.
+func setupTestAgent(t *testing.T, rt runtime.Runtime) *Agent {
+	t.Helper()
+
+	// mock api
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Cleanup(func() {
+		server.Close()
+	})
+
+	agent := New(rt, AgentConfig{
+		ControllerURL: server.URL,
+	}, nil)
+	return agent
+}
+
 // Test: New() Function
 func TestNew_DefaultConcurrency(t *testing.T) {
 	agent := New(&MockRuntime{}, AgentConfig{Concurrency: 0}, nil)
@@ -910,7 +929,7 @@ func TestProcessItem_TimeoutUsesJobDefault(t *testing.T) {
 		},
 	}
 
-	agent := New(mockRuntime, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 	agent.processItem(context.Background(), execID, payload)
 
 	if capturedTimeout != customTimeout {
@@ -942,7 +961,7 @@ func TestProcessItem_DefaultTimeoutWhenNotSet(t *testing.T) {
 		},
 	}
 
-	agent := New(mockRuntime, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 	agent.processItem(context.Background(), execID, payload)
 
 	if !hasDeadline {
@@ -1170,7 +1189,7 @@ func TestProcessItem_Metrics(t *testing.T) {
 	otel.SetMeterProvider(provider)
 
 	// Mock Runtime that "runs" instantly
-	rt := &MockRuntime{
+	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return &MockHandle{
 				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
@@ -1180,7 +1199,7 @@ func TestProcessItem_Metrics(t *testing.T) {
 		},
 	}
 
-	agent := New(rt, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 
 	// Create Payload with tenant ID to verify attributes
 	tenantID := uuid.New()
@@ -1271,7 +1290,7 @@ func TestProcessItem_Metrics_Failure(t *testing.T) {
 	otel.SetMeterProvider(provider)
 
 	// Mock Runtime that fails
-	rt := &MockRuntime{
+	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			return &MockHandle{
 				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
@@ -1281,7 +1300,7 @@ func TestProcessItem_Metrics_Failure(t *testing.T) {
 		},
 	}
 
-	agent := New(rt, AgentConfig{}, nil)
+	agent := setupTestAgent(t, mockRuntime)
 
 	job := store.Job{ID: uuid.New(), Name: "failing-job", Image: "img", TenantID: uuid.New()}
 	payloadBytes, _ := json.Marshal(job)
@@ -1308,5 +1327,92 @@ func TestProcessItem_Metrics_Failure(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAgent_doWithRetry(t *testing.T) {
+	tests := []struct {
+		name          string
+		responses     []int
+		expectError   bool
+		expectedCalls int
+		timeout       time.Duration
+	}{
+		{
+			name:          "Success on First Try",
+			responses:     []int{200},
+			expectError:   false,
+			expectedCalls: 1,
+		},
+		{
+			name:          "Retry Once then Success (500 -> 200)",
+			responses:     []int{500, 200},
+			expectError:   false,
+			expectedCalls: 2, // Should retry once
+		},
+		{
+			name:          "Fail Fast on 400 (Bad Request)",
+			responses:     []int{400},
+			expectError:   true,
+			expectedCalls: 1, // Should NOT retry
+		},
+		{
+			name:          "Fail Fast on 401 (Unauthorized)",
+			responses:     []int{401},
+			expectError:   true,
+			expectedCalls: 1, // Should NOT retry
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+
+			// a mock server that returns different codes in sequence
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				count := callCount
+				callCount++
+
+				if count < len(tt.responses) {
+					w.WriteHeader(tt.responses[count])
+				} else {
+					w.WriteHeader(500)
+				}
+			}))
+			defer server.Close()
+
+			agent := New(nil, AgentConfig{
+				ControllerURL: server.URL,
+			}, nil)
+
+			// create context
+			ctx := context.Background()
+			if tt.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.timeout)
+				defer cancel()
+			}
+
+			// Run doWithRetry
+			resp, err := agent.doWithRetry(ctx, http.MethodGet, server.URL, nil)
+
+			// assertions
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if resp.Body != nil {
+					resp.Body.Close()
+				}
+			}
+
+			if callCount != tt.expectedCalls {
+				t.Errorf("expected %d HTTP calls, got %d", tt.expectedCalls, callCount)
+			}
+		})
 	}
 }
