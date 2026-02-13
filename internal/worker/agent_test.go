@@ -292,6 +292,7 @@ func TestRun_DoneChannelClosed(t *testing.T) {
 func TestRun_ConcurrencyLimit(t *testing.T) {
 	var runningJobs int32
 	var maxConcurrent int32
+	var mu sync.Mutex
 
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"echo"}})
@@ -300,7 +301,7 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 		DequeueBatchFunc: func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error) {
 			// Return 'limit' jobs
 			items := make([]store.QueueItem, limit)
-			for i := 0; i < limit; i++ {
+			for i := range limit {
 				items[i] = store.QueueItem{ExecutionID: uuid.New(), Payload: payload}
 			}
 			return items, nil
@@ -310,9 +311,12 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 	mockRuntime := &MockRuntime{
 		StartFunc: func(ctx context.Context, opts runtime.StartOptions) (runtime.Handle, error) {
 			current := atomic.AddInt32(&runningJobs, 1)
+
+			mu.Lock()
 			if current > maxConcurrent {
 				maxConcurrent = current
 			}
+			mu.Unlock()
 
 			return &MockHandle{
 				WaitFunc: func(ctx context.Context) (runtime.ExitResult, error) {
@@ -375,8 +379,12 @@ func TestRun_ConcurrencyLimit(t *testing.T) {
 		t.Fatal("shutdown timeout")
 	}
 
-	if int(maxConcurrent) > concurrencyLimit {
-		t.Errorf("max concurrent jobs=%d exceeded limit=%d", maxConcurrent, concurrencyLimit)
+	mu.Lock()
+	finalMaxConcurrent := maxConcurrent
+	mu.Unlock()
+
+	if int(finalMaxConcurrent) > concurrencyLimit {
+		t.Errorf("max concurrent jobs=%d exceeded limit=%d", finalMaxConcurrent, concurrencyLimit)
 	}
 }
 
