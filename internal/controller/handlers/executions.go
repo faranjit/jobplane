@@ -173,23 +173,20 @@ func (h *Handlers) InternalUpdateResult(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req struct {
-		ExitCode int    `json:"exit_code"`
-		Error    string `json:"error"`
-	}
+	var req api.ExecutionResultRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.httpError(w, "Invalid body", http.StatusBadRequest)
 		return
 	}
 
-	if req.ExitCode == 0 && req.Error == "" {
-		err := h.store.Complete(ctx, nil, executionID, req.ExitCode)
+	if req.ExitCode != nil && *req.ExitCode == 0 && req.Error == "" {
+		err := h.store.Complete(ctx, nil, executionID, 0)
 		if err != nil {
 			h.httpError(w, "Failed to mark complete", http.StatusInternalServerError)
 			return
 		}
 	} else {
-		err := h.store.Fail(ctx, nil, executionID, &req.ExitCode, req.Error)
+		err := h.store.Fail(ctx, nil, executionID, req.ExitCode, req.Error)
 		if err != nil {
 			h.httpError(w, "Failed to mark failed", http.StatusInternalServerError)
 			return

@@ -75,6 +75,12 @@ type ExecutionResponse struct {
 	Error       *string    `json:"error,omitempty"`
 }
 
+// ExecutionResultRequest represents the result of an execution
+type ExecutionResultRequest struct {
+	ExitCode *int   `json:"exit_code"`
+	Error    string `json:"error"`
+}
+
 // ErrorResponse is the standard error response format.
 type ErrorResponse struct {
 	Error   string `json:"error"`

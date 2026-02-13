@@ -202,7 +202,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 		// Fallback: Try unmarshaling directly to Job (old format / backward compatibility)
 		if err := json.Unmarshal(payload, &jobDef); err != nil {
 			log.Printf("Failed to unmarshal job payload: %v", err)
-			a.queue.Fail(ctx, nil, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
+			a.sendResult(ctx, execID, nil, fmt.Sprintf("Invalid payload: %v", err))
 			return
 		}
 		traceCtx = ctx
@@ -272,7 +272,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	handle, err := a.runtime.Start(execContext, runtimeOpts)
 	if err != nil {
 		log.Printf("Failed to start runtime for %s: %v", execID, err)
-		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
+		a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
 		return // status already defaults to "failure"
 	}
 
@@ -308,12 +308,12 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer stopCancel()
 			handle.Stop(stopCtx)
-			a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Execution timed out after %v", timeout))
+			a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Execution timed out after %v", timeout))
 			return
 		}
 
 		log.Printf("Runtime waiting error for %s: %v", execID, err)
-		a.queue.Fail(context.Background(), nil, execID, nil, fmt.Sprintf("Runtime waiting error: %v", err))
+		a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Runtime waiting error: %v", err))
 		return
 	}
 
@@ -323,7 +323,7 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	if result.ExitCode == 0 {
 		log.Printf("Execution %s completed successfully", execID)
 		status = "success" // This will be captured by the deferred function
-		a.queue.Complete(context.Background(), nil, execID, 0)
+		a.sendResult(context.Background(), execID, &result.ExitCode, "")
 	} else {
 		log.Printf("Execution %s failed with code %d", execID, result.ExitCode)
 		errorMessage := fmt.Sprintf("Exit code %d", result.ExitCode)
@@ -332,8 +332,36 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 			span.RecordError(result.Error)
 		}
 		// status already defaults to "failure"
-		a.queue.Fail(context.Background(), nil, execID, &result.ExitCode, errorMessage)
+		a.sendResult(context.Background(), execID, &result.ExitCode, errorMessage)
 	}
+}
+
+func (a *Agent) sendResult(ctx context.Context, executionID uuid.UUID, exitCode *int, errMsg string) error {
+	url := fmt.Sprintf("%s/internal/executions/%s/result", a.config.ControllerURL, executionID)
+
+	body := api.ExecutionResultRequest{
+		ExitCode: exitCode,
+		Error:    errMsg,
+	}
+	reqBody, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // runHeartbeat refreshes the visibility timeout periodically while a job is executing.
