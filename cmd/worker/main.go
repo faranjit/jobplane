@@ -79,12 +79,11 @@ func main() {
 	}
 
 	agent := worker.New(store, rt, worker.AgentConfig{
-		Concurrency:         cfg.WorkerConcurrency,
-		PollInterval:        cfg.WorkerPollInterval,
-		ControllerURL:       cfg.ControllerURL,
-		MaxBackoff:          cfg.WorkerMaxBackoff,
-		HeartbeatInterval:   cfg.WorkerHeartbeatInterval,
-		VisibilityExtension: cfg.WorkerVisibilityExtension,
+		Concurrency:       cfg.WorkerConcurrency,
+		PollInterval:      cfg.WorkerPollInterval,
+		ControllerURL:     cfg.ControllerURL,
+		MaxBackoff:        cfg.WorkerMaxBackoff,
+		HeartbeatInterval: cfg.WorkerHeartbeatInterval,
 	}, nil)
 
 	log.Printf("Worker started with concurrency %d", cfg.WorkerConcurrency)

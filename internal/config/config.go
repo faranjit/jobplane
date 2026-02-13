@@ -17,6 +17,12 @@ type Config struct {
 	// HTTP server port for the controller
 	HTTPPort int `mapstructure:"http_port"`
 
+	// URL of the Control Plane (e.g., "http://localhost:6161")
+	ControllerURL string `mapstructure:"controller_url"`
+
+	// How long to extend visibility timeout on each heartbeat
+	HeartVisibilityExtension time.Duration `mapstructure:"heartbeat_visibility_extension"`
+
 	// Worker-specific configuration
 	WorkerConcurrency int `mapstructure:"worker_concurrency"`
 
@@ -28,12 +34,6 @@ type Config struct {
 
 	// Heartbeat interval during job execution
 	WorkerHeartbeatInterval time.Duration `mapstructure:"worker_heartbeat_interval"`
-
-	// How long to extend visibility timeout on each heartbeat
-	WorkerVisibilityExtension time.Duration `mapstructure:"worker_visibility_extension"`
-
-	// URL of the Control Plane (e.g., "http://localhost:6161")
-	ControllerURL string `mapstructure:"controller_url"`
 
 	// Runtime type: "docker" (default), "exec", or "kubernetes"
 	Runtime string `mapstructure:"runtime"`
@@ -58,12 +58,12 @@ func Load(configPath string) (*Config, error) {
 
 	// Set defaults
 	v.SetDefault("http_port", 6161)
+	v.SetDefault("controller_url", "http://localhost:6161")
+	v.SetDefault("heartbeat_visibility_extension", "5m")
 	v.SetDefault("worker_concurrency", 1)
 	v.SetDefault("worker_poll_interval", "1s")
 	v.SetDefault("worker_max_backoff", "30s")
 	v.SetDefault("worker_heartbeat_interval", "2m")
-	v.SetDefault("worker_visibility_extension", "5m")
-	v.SetDefault("controller_url", "http://localhost:6161")
 	v.SetDefault("runtime", "docker")
 	v.SetDefault("otel_endpoint", "localhost:4317")
 
@@ -90,12 +90,12 @@ func Load(configPath string) (*Config, error) {
 	// Manual bindings for backward compatibility
 	_ = v.BindEnv("database_url", "DATABASE_URL")
 	_ = v.BindEnv("http_port", "PORT")
+	_ = v.BindEnv("controller_url", "CONTROLLER_URL")
+	_ = v.BindEnv("heartbeat_visibility_extension", "HEARTBEAT_VISIBILITY_EXTENSION")
 	_ = v.BindEnv("worker_concurrency", "WORKER_CONCURRENCY")
 	_ = v.BindEnv("worker_poll_interval", "WORKER_POLL_INTERVAL")
 	_ = v.BindEnv("worker_max_backoff", "WORKER_MAX_BACKOFF")
 	_ = v.BindEnv("worker_heartbeat_interval", "WORKER_HEARTBEAT_INTERVAL")
-	_ = v.BindEnv("worker_visibility_extension", "WORKER_VISIBILITY_EXTENSION")
-	_ = v.BindEnv("controller_url", "CONTROLLER_URL")
 	_ = v.BindEnv("runtime", "RUNTIME")
 	_ = v.BindEnv("runtime_workdir", "RUNTIME_WORKDIR")
 	_ = v.BindEnv("kubernetes_namespace", "KUBERNETES_NAMESPACE")
@@ -118,6 +118,10 @@ func Load(configPath string) (*Config, error) {
 	// Validate runtime
 	if cfg.Runtime != "docker" && cfg.Runtime != "exec" && cfg.Runtime != "kubernetes" {
 		return nil, fmt.Errorf("invalid runtime: must be 'docker', 'exec', or 'kubernetes', got '%s'", cfg.Runtime)
+	}
+
+	if cfg.HeartVisibilityExtension <= 0 {
+		cfg.HeartVisibilityExtension = 5 * time.Minute
 	}
 
 	return cfg, nil

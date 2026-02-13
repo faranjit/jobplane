@@ -92,7 +92,7 @@ func main() {
 
 	// Start Server
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
-	srv := controller.New(addr, store, metricsHandler)
+	srv := controller.New(addr, store, cfg, metricsHandler)
 
 	go func() {
 		log.Printf("JobPlane Controller starting on %s", addr)

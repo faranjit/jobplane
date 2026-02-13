@@ -7,16 +7,15 @@ metadata:
 data:
   # Controller configuration
   HTTP_PORT: {{ .Values.controller.httpPort | quote }}
+  HEARTBEAT_VISIBILITY_EXTENSION: {{ .Values.controller.visibilityExtension | quote }}
 
   # Worker configuration
   WORKER_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
   WORKER_POLL_INTERVAL: {{ .Values.worker.pollInterval | quote }}
   WORKER_MAX_BACKOFF: {{ .Values.worker.maxBackoff | quote }}
   WORKER_HEARTBEAT_INTERVAL: {{ .Values.worker.heartbeatInterval | quote }}
-  WORKER_VISIBILITY_EXTENSION: {{ .Values.worker.visibilityExtension | quote }}
   RUNTIME: {{ .Values.worker.runtime | quote }}
   RUNTIME_WORKDIR: {{ .Values.worker.runtimeWorkDir | quote }}
-
   # Controller URL for worker to report back
   CONTROLLER_URL: "http://{{ include "jobplane.fullname" . }}-controller:{{ .Values.controller.httpPort }}"
 

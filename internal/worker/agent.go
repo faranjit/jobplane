@@ -27,13 +27,12 @@ import (
 
 // AgentConfig holds configuration for the worker agent.
 type AgentConfig struct {
-	ID                  string
-	Concurrency         int
-	PollInterval        time.Duration
-	ControllerURL       string
-	MaxBackoff          time.Duration // Maximum backoff when queue is empty (default: 30s)
-	HeartbeatInterval   time.Duration // Interval between heartbeat calls (default: 2m)
-	VisibilityExtension time.Duration // How long to extend visibility on heartbeat (default: 5m)
+	ID                string
+	Concurrency       int
+	PollInterval      time.Duration
+	ControllerURL     string
+	MaxBackoff        time.Duration // Maximum backoff when queue is empty (default: 30s)
+	HeartbeatInterval time.Duration // Interval between heartbeat calls (default: 2m)
 }
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
@@ -69,10 +68,6 @@ func New(q store.Queue, rt runtime.Runtime, config AgentConfig, tenantIDs []uuid
 
 	if config.HeartbeatInterval <= 0 {
 		config.HeartbeatInterval = 2 * time.Minute
-	}
-
-	if config.VisibilityExtension <= 0 {
-		config.VisibilityExtension = 5 * time.Minute
 	}
 
 	// Ensure no trailing slash
@@ -353,12 +348,33 @@ func (a *Agent) runHeartbeat(ctx context.Context, execID uuid.UUID) {
 			return
 		case <-ticker.C:
 			// Extend visibility timeout
-			visibleAfter := time.Now().Add(a.config.VisibilityExtension)
-			if err := a.queue.SetVisibleAfter(context.Background(), nil, execID, visibleAfter); err != nil {
+			if err := a.sendHeartBeat(ctx, execID); err != nil {
 				log.Printf("Heartbeat failed for %s: %v", execID, err)
 			}
 		}
 	}
+}
+
+func (a *Agent) sendHeartBeat(ctx context.Context, executionID uuid.UUID) error {
+	url := fmt.Sprintf("%s/internal/executions/%s/heartbeat", a.config.ControllerURL, executionID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (a *Agent) streamLogs(ctx context.Context, executionID uuid.UUID, handle runtime.Handle) {

@@ -128,6 +128,7 @@ func (m *mockStore) GetExecutionLogs(ctx context.Context, executionID uuid.UUID,
 }
 
 func (m *mockStore) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {
+	m.capturedVisibleAfter = visibleAfter
 	return m.setVisibleErr
 }
 

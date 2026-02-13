@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -72,7 +73,7 @@ func TestGetExecution(t *testing.T) {
 				tt.mockSetup(mock)
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			// Request
 			mux := http.NewServeMux()
@@ -104,12 +105,19 @@ func TestInternalHeartbeat(t *testing.T) {
 		executionID    string
 		mockSetup      func(*mockStore)
 		expectedStatus int
+		verify         func(time.Time, int16)
 	}{
 		{
 			name:           "Success",
 			executionID:    executionID.String(),
 			mockSetup:      func(m *mockStore) {},
 			expectedStatus: http.StatusOK,
+			verify: func(newVisibility time.Time, atLeastDiff int16) {
+				diff := time.Until(newVisibility).Minutes()
+				if int16(diff) < atLeastDiff-1 { // play safe because of int conversion
+					t.Errorf("handler updated the visibility wrong: got %v want %v", newVisibility, newVisibility)
+				}
+			},
 		},
 		{
 			name:           "Invalid UUID",
@@ -134,7 +142,9 @@ func TestInternalHeartbeat(t *testing.T) {
 				tt.mockSetup(mock)
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{
+				VisibilityExtension: 10 * time.Minute,
+			})
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("/internal/executions/{id}/heartbeat", h.InternalHeartbeat)
@@ -146,6 +156,10 @@ func TestInternalHeartbeat(t *testing.T) {
 
 			if rr.Code != tt.expectedStatus {
 				t.Errorf("handler returned wrong status code: got %d want %d", rr.Code, tt.expectedStatus)
+			}
+
+			if tt.verify != nil {
+				tt.verify(mock.capturedVisibleAfter, 10)
 			}
 		})
 	}
@@ -215,7 +229,7 @@ func TestInternalUpdateResult(t *testing.T) {
 			if tt.mockSetup != nil {
 				tt.mockSetup(mock)
 			}
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("PUT /internal/executions/{id}/result", h.InternalUpdateResult)
@@ -289,7 +303,7 @@ func TestGetDLQExecutions(t *testing.T) {
 				tt.mockSetup()
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("GET /executions/dlq", h.GetDQLExecutions)
@@ -382,7 +396,7 @@ func TestRetryDLQExecution(t *testing.T) {
 				tt.mockSetup(mock)
 			}
 
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /executions/dlq/{id}/retry", h.RetryDQLExecution)

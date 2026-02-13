@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"jobplane/internal/config"
 	"jobplane/internal/controller/handlers"
 	"jobplane/internal/controller/middleware"
 	"net/http"
@@ -17,12 +18,14 @@ type Server struct {
 }
 
 // New creates a new controller server.
-func New(addr string, store handlers.StoreFactory, metricsHandler http.Handler) *Server {
+func New(addr string, store handlers.StoreFactory, config *config.Config, metricsHandler http.Handler) *Server {
 	rateLimiter := middleware.NewRateLimiter()
 	authMW := middleware.AuthMiddleware(store)
 	rateMW := rateLimiter.Middleware()
 
-	h := handlers.New(store).WithCallbacks(handlers.Callbacks{
+	h := handlers.New(store, handlers.HandlerConfig{
+		VisibilityExtension: config.HeartVisibilityExtension,
+	}).WithCallbacks(handlers.Callbacks{
 		OnTenantUpdated: rateLimiter.InvalidateTenant,
 	})
 

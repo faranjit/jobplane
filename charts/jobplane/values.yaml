@@ -43,6 +43,9 @@ controller:
   # -- Affinity rules
   affinity: {}
 
+  # -- How long to extend visibility timeout on each heartbeat
+  visibilityExtension: "5m"
+
 # -- Worker configuration
 worker:
   # -- Number of worker replicas
@@ -59,9 +62,6 @@ worker:
 
   # -- Heartbeat interval during job execution
   heartbeatInterval: "2m"
-
-  # -- How long to extend visibility timeout on each heartbeat
-  visibilityExtension: "5m"
 
   # -- Runtime type: "docker" or "exec"
   runtime: "exec"

@@ -150,8 +150,8 @@ func (h *Handlers) InternalHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extend visibility by 5 minutes from now
-	newVisibility := time.Now().Add(5 * time.Minute)
+	// Extend visibility by some time from now
+	newVisibility := time.Now().Add(h.config.VisibilityExtension)
 
 	if err := h.store.SetVisibleAfter(ctx, nil, executionID, newVisibility); err != nil {
 		h.httpError(w, "Failed to update heartbeat", http.StatusInternalServerError)

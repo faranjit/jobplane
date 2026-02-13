@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,9 +31,8 @@ type MockQueue struct {
 	DequeueBatchFunc func(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]store.QueueItem, error)
 
 	// Track method calls
-	CompleteCalls        []CompleteCall
-	FailCalls            []FailCall
-	SetVisibleAfterCalls []SetVisibleAfterCall
+	CompleteCalls []CompleteCall
+	FailCalls     []FailCall
 }
 
 type CompleteCall struct {
@@ -43,11 +44,6 @@ type FailCall struct {
 	ExecutionID uuid.UUID
 	ExitCode    *int
 	ErrMsg      string
-}
-
-type SetVisibleAfterCall struct {
-	ExecutionID  uuid.UUID
-	VisibleAfter time.Time
 }
 
 func (m *MockQueue) Enqueue(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, payload json.RawMessage, visibleAfter time.Time) (int64, error) {
@@ -76,9 +72,6 @@ func (m *MockQueue) Fail(ctx context.Context, tx store.DBTransaction, executionI
 }
 
 func (m *MockQueue) SetVisibleAfter(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, visibleAfter time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.SetVisibleAfterCalls = append(m.SetVisibleAfterCalls, SetVisibleAfterCall{ExecutionID: executionID, VisibleAfter: visibleAfter})
 	return nil
 }
 
@@ -760,6 +753,35 @@ func TestHeartbeat_RefreshesVisibilityDuringLongJob(t *testing.T) {
 	jobID := uuid.New()
 	payload, _ := json.Marshal(store.Job{ID: jobID, Image: "test:latest", Command: []string{"sleep"}})
 
+	var heartbeatCount int32
+	var capturedExecID string
+	var mu sync.Mutex
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/heartbeat") {
+			mu.Lock()
+			atomic.AddInt32(&heartbeatCount, 1)
+			// Extract execution ID from path
+			parts := strings.Split(r.URL.Path, "/")
+			for i, p := range parts {
+				if p == "executions" && i+1 < len(parts) {
+					capturedExecID = parts[i+1]
+				}
+			}
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Handle log shipping too (streamLogs calls sendLogs)
+		if strings.Contains(r.URL.Path, "/logs") {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	queue := &MockQueue{}
 
 	mockRuntime := &MockRuntime{
@@ -775,37 +797,23 @@ func TestHeartbeat_RefreshesVisibilityDuringLongJob(t *testing.T) {
 	}
 
 	agent := New(queue, mockRuntime, AgentConfig{
-		HeartbeatInterval:   50 * time.Millisecond, // Short interval for testing
-		VisibilityExtension: 5 * time.Minute,       // Explicit extension time
+		HeartbeatInterval: 50 * time.Millisecond, // Short interval for testing
+		ControllerURL:     server.URL,
 	}, nil)
 
 	agent.processItem(context.Background(), execID, payload)
 
 	// Heartbeat should have been called at least once (150ms job / 50ms interval = ~2 calls)
-	queue.mu.Lock()
-	heartbeatCalls := len(queue.SetVisibleAfterCalls)
-	queue.mu.Unlock()
-
-	if heartbeatCalls < 1 {
-		t.Errorf("expected at least 1 heartbeat call during long job, got %d", heartbeatCalls)
+	count := atomic.LoadInt32(&heartbeatCount)
+	if count < 1 {
+		t.Errorf("expected at least 1 heartbeat call during long job, got %d", count)
 	}
 
-	// Verify heartbeat was for the correct execution
-	if heartbeatCalls > 0 {
-		queue.mu.Lock()
-		firstCall := queue.SetVisibleAfterCalls[0]
-		queue.mu.Unlock()
-
-		if firstCall.ExecutionID != execID {
-			t.Errorf("heartbeat called with wrong execution ID: got %s, want %s", firstCall.ExecutionID, execID)
-		}
-
-		// Visibility should be extended ~5 minutes into the future (based on VisibilityExtension config)
-		expectedMin := time.Now().Add(4 * time.Minute)
-		if firstCall.VisibleAfter.Before(expectedMin) {
-			t.Errorf("heartbeat visibility extension too short: %v", firstCall.VisibleAfter)
-		}
+	mu.Lock()
+	if capturedExecID != execID.String() {
+		t.Errorf("heartbeat sent for wrong execution: got %s, want %s", capturedExecID, execID.String())
 	}
+	mu.Unlock()
 }
 
 func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
@@ -826,8 +834,30 @@ func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
 		},
 	}
 
+	var heartbeatCount int32
+	var mu sync.Mutex
+
+	// Mock controller HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/heartbeat") {
+			mu.Lock()
+			atomic.AddInt32(&heartbeatCount, 1)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Handle log shipping too (streamLogs calls sendLogs)
+		if strings.Contains(r.URL.Path, "/logs") {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
 	agent := New(queue, mockRuntime, AgentConfig{
 		HeartbeatInterval: 5 * time.Second, // Long interval - job will complete before it fires
+		ControllerURL:     server.URL,
 	}, nil)
 
 	agent.processItem(context.Background(), execID, payload)
@@ -835,14 +865,12 @@ func TestHeartbeat_StopsWhenJobCompletes(t *testing.T) {
 	// Wait a bit to ensure no delayed heartbeat
 	time.Sleep(50 * time.Millisecond)
 
-	queue.mu.Lock()
-	heartbeatCalls := len(queue.SetVisibleAfterCalls)
-	queue.mu.Unlock()
-
+	mu.Lock()
 	// No heartbeat should have been called for a fast job
-	if heartbeatCalls != 0 {
-		t.Errorf("expected 0 heartbeat calls for fast job, got %d", heartbeatCalls)
+	if heartbeatCount != 0 {
+		t.Errorf("expected 0 heartbeat calls for fast job, got %d", heartbeatCount)
 	}
+	mu.Unlock()
 }
 
 func TestProcessItem_Metrics(t *testing.T) {

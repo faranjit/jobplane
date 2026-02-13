@@ -108,7 +108,7 @@ func TestCreateJob(t *testing.T) {
 			if tt.mockSetup != nil {
 				tt.mockSetup(mock)
 			}
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			// Request
 			req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(tt.body))
@@ -257,7 +257,7 @@ func TestRunJob(t *testing.T) {
 			if tt.mockSetup != nil {
 				tt.mockSetup(mock)
 			}
-			h := New(mock)
+			h := New(mock, HandlerConfig{})
 
 			// Setup Router & Request
 			mux := http.NewServeMux()
@@ -295,7 +295,7 @@ func TestCreateJob_Metrics(t *testing.T) {
 		createJobErr: nil,
 	}
 
-	h := New(mock)
+	h := New(mock, HandlerConfig{})
 	reqBody := api.CreateJobRequest{Name: "metric-test-job", Image: "alpine"}
 	bodyBytes, _ := json.Marshal(reqBody)
 
