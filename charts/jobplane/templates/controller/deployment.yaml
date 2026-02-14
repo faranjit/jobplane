@@ -40,11 +40,21 @@ spec:
             - configMapRef:
                 name: {{ include "jobplane.fullname" . }}-config
           env:
+            - name: SYSTEM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "jobplane.fullname" . }}-secret
+                  key: SYSTEM_SECRET
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.existingSecret | default (printf "%s-db" (include "jobplane.fullname" .)) }}
+                  {{- if .Values.database.existingSecret }}
+                  name: {{ .Values.database.existingSecret }}
                   key: DATABASE_URL
+                  {{- else }}
+                  name: {{ include "jobplane.fullname" . }}-secret
+                  key: DATABASE_URL
+                  {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

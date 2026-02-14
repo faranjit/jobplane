@@ -77,6 +77,7 @@ func main() {
 		ControllerURL:     cfg.ControllerURL,
 		MaxBackoff:        cfg.WorkerMaxBackoff,
 		HeartbeatInterval: cfg.WorkerHeartbeatInterval,
+		SystemSecret:      cfg.SystemSecret,
 	}, nil)
 
 	log.Printf("Worker started with concurrency %d", cfg.WorkerConcurrency)

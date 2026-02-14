@@ -1,6 +1,10 @@
 # jobplane Configuration File
 # All values can be overridden by environment variables
 
+# System Secret (required)
+# Env: SYSTEM_SECRET
+system_secret: "secret"
+
 # Database connection string (required)
 # Env: DATABASE_URL
 database_url: "postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable"

@@ -49,9 +49,13 @@ func New(addr string, store handlers.StoreFactory, config *config.Config, metric
 	// Internal endpoints
 	// These are called by the Worker Agent.
 	// these should run on a separate port or strict network rules.
-	mux.HandleFunc("PUT /internal/executions/{id}/heartbeat", h.InternalHeartbeat)
-	mux.HandleFunc("PUT /internal/executions/{id}/result", h.InternalUpdateResult)
-	mux.HandleFunc("POST /internal/executions/{id}/logs", h.InternalAddLogs)
+	// Internal API (System Secret Auth)
+	internalAuth := middleware.RequireInternalAuth(config.SystemSecret)
+
+	mux.Handle("POST /internal/executions/dequeue", internalAuth(http.HandlerFunc(h.InternalDequeue)))
+	mux.Handle("PUT /internal/executions/{id}/heartbeat", internalAuth(http.HandlerFunc(h.InternalHeartbeat)))
+	mux.Handle("PUT /internal/executions/{id}/result", internalAuth(http.HandlerFunc(h.InternalUpdateResult)))
+	mux.Handle("POST /internal/executions/{id}/logs", internalAuth(http.HandlerFunc(h.InternalAddLogs)))
 
 	// Metrics Endpoint
 	if metricsHandler != nil {

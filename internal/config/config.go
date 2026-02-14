@@ -11,6 +11,9 @@ import (
 
 // Config holds all configuration values for the application.
 type Config struct {
+	// System Secret
+	SystemSecret string `mapstructure:"system_secret"`
+
 	// Database connection string
 	DatabaseURL string `mapstructure:"database_url"`
 
@@ -88,6 +91,7 @@ func Load(configPath string) (*Config, error) {
 	v.AutomaticEnv()
 
 	// Manual bindings for backward compatibility
+	_ = v.BindEnv("system_secret", "SYSTEM_SECRET")
 	_ = v.BindEnv("database_url", "DATABASE_URL")
 	_ = v.BindEnv("http_port", "PORT")
 	_ = v.BindEnv("controller_url", "CONTROLLER_URL")
@@ -107,6 +111,9 @@ func Load(configPath string) (*Config, error) {
 	// Validate required fields
 	if v.GetString("database_url") == "" {
 		return nil, fmt.Errorf("database_url is required (env: DATABASE_URL)")
+	}
+	if v.GetString("system_secret") == "" {
+		return nil, fmt.Errorf("system_secret is required (env: SYSTEM_SECRET)")
 	}
 
 	// Parse config

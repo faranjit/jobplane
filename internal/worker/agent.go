@@ -35,6 +35,7 @@ type AgentConfig struct {
 	ControllerURL     string
 	MaxBackoff        time.Duration // Maximum backoff when queue is empty (default: 30s)
 	HeartbeatInterval time.Duration // Interval between heartbeat calls (default: 2m)
+	SystemSecret      string
 }
 
 // Agent is the main worker agent that runs the pull-loop for job execution.
@@ -196,6 +197,7 @@ func (a *Agent) fetchWork(ctx context.Context, limit int) ([]api.DequeuedExecuti
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", a.config.SystemSecret))
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -496,6 +498,7 @@ func (a *Agent) sendLogs(ctx context.Context, executionID uuid.UUID, content str
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", a.config.SystemSecret))
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -546,7 +549,6 @@ func (a *Agent) doWithRetry(ctx context.Context, method, url string, body []byte
 
 		if body != nil {
 			req, err = http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
 		} else {
 			req, err = http.NewRequestWithContext(ctx, method, url, nil)
 		}
@@ -554,6 +556,9 @@ func (a *Agent) doWithRetry(ctx context.Context, method, url string, body []byte
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", a.config.SystemSecret))
 
 		resp, err := a.httpClient.Do(req)
 		if err != nil {

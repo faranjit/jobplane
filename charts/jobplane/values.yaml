@@ -13,6 +13,9 @@ fullnameOverride: ""
 
 # -- Controller configuration
 controller:
+  # -- System Secret (required)
+  systemSecret: ""
+
   # -- Number of controller replicas
   replicaCount: 1
 
@@ -48,6 +51,9 @@ controller:
 
 # -- Worker configuration
 worker:
+  # -- System Secret (required)
+  systemSecret: ""
+
   # -- Number of worker replicas
   replicaCount: 1
 

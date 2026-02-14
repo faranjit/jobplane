@@ -36,11 +36,11 @@ spec:
             - configMapRef:
                 name: {{ include "jobplane.fullname" . }}-config
           env:
-            - name: DATABASE_URL
+            - name: SYSTEM_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.existingSecret | default (printf "%s-db" (include "jobplane.fullname" .)) }}
-                  key: DATABASE_URL
+                  name: {{ include "jobplane.fullname" . }}-secret
+                  key: SYSTEM_SECRET
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
       {{- with .Values.worker.nodeSelector }}

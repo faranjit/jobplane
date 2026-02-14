@@ -19,8 +19,23 @@ func TestLoad_RequiresDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoad_RequiresSystemSecret(t *testing.T) {
+	// Clear any existing env vars
+	t.Setenv("DATABASE_URL", "db_url")
+	t.Setenv("SYSTEM_SECRET", "")
+
+	_, err := Load("")
+	if err == nil {
+		t.Error("expected error when SYSTEM_SECRET is missing")
+	}
+	if err.Error() != "system_secret is required (env: SYSTEM_SECRET)" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 func TestLoad_DefaultValues(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("SYSTEM_SECRET", "secret")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -59,6 +74,7 @@ func TestLoad_DefaultValues(t *testing.T) {
 
 func TestLoad_EnvVarOverrides(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://custom/db")
+	t.Setenv("SYSTEM_SECRET", "secret61")
 	t.Setenv("PORT", "9999")
 	t.Setenv("WORKER_CONCURRENCY", "5")
 	t.Setenv("WORKER_POLL_INTERVAL", "2s")
@@ -74,6 +90,9 @@ func TestLoad_EnvVarOverrides(t *testing.T) {
 
 	if cfg.DatabaseURL != "postgres://custom/db" {
 		t.Errorf("expected DatabaseURL from env, got %s", cfg.DatabaseURL)
+	}
+	if cfg.SystemSecret != "secret61" {
+		t.Errorf("expected SystemSecret from env, got %s", cfg.SystemSecret)
 	}
 	if cfg.HTTPPort != 9999 {
 		t.Errorf("expected HTTPPort 9999, got %d", cfg.HTTPPort)
@@ -100,6 +119,7 @@ func TestLoad_EnvVarOverrides(t *testing.T) {
 
 func TestLoad_InvalidRuntime(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("SYSTEM_SECRET", "secret")
 	t.Setenv("RUNTIME", "invalid")
 
 	_, err := Load("")
@@ -118,6 +138,7 @@ func TestLoad_ConfigFile(t *testing.T) {
 
 	configContent := `
 database_url: "postgres://config-file/db"
+system_secret: "secret"
 http_port: 7777
 worker_concurrency: 10
 runtime: exec
@@ -129,6 +150,7 @@ runtime: exec
 
 	// Clear env vars that would override
 	t.Setenv("DATABASE_URL", "")
+	t.Setenv("SYSTEM_SECRET", "")
 	t.Setenv("PORT", "")
 	t.Setenv("WORKER_CONCURRENCY", "")
 	t.Setenv("RUNTIME", "")
@@ -140,6 +162,9 @@ runtime: exec
 
 	if cfg.DatabaseURL != "postgres://config-file/db" {
 		t.Errorf("expected DatabaseURL from config file, got %s", cfg.DatabaseURL)
+	}
+	if cfg.SystemSecret != "secret" {
+		t.Errorf("expected SystemSecret from config file, got %s", cfg.SystemSecret)
 	}
 	if cfg.HTTPPort != 7777 {
 		t.Errorf("expected HTTPPort 7777, got %d", cfg.HTTPPort)
@@ -162,6 +187,7 @@ func TestLoad_EnvOverridesConfigFile(t *testing.T) {
 
 	configContent := `
 database_url: "postgres://from-file/db"
+system_secret: "secret"
 http_port: 7777
 `
 	if _, err := tmpFile.WriteString(configContent); err != nil {
@@ -171,6 +197,7 @@ http_port: 7777
 
 	// Set env var to override config file
 	t.Setenv("DATABASE_URL", "postgres://from-env/db")
+	t.Setenv("SYSTEM_SECRET", "secret61")
 	t.Setenv("PORT", "8888")
 
 	cfg, err := Load(tmpFile.Name())
@@ -189,6 +216,7 @@ http_port: 7777
 
 func TestLoad_InvalidConfigFile(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("SYSTEM_SECRET", "secret")
 
 	_, err := Load("/nonexistent/path/to/config.yaml")
 	if err == nil {
