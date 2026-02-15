@@ -35,16 +35,20 @@ jobplane allows teams to define background jobs, enqueue executions, and run the
 
 ## Key Features
 
-- **Multi-Tenant** – Every operation scoped by `tenant_id`
-- **Pluggable Runtimes** – Supports **Kubernetes Jobs**, Docker containers, and raw processes
+- **Multi-Tenant** – Every operation scoped by `tenant_id`, per-tenant rate limiting and concurrency controls
+- **Pluggable Runtimes** – Supports **Kubernetes Jobs**, Docker containers, and local processes (`exec`)
+- **Structured Result Collection** – Jobs write `result.json`; results are persisted as JSONB in the database
 - **Scheduled Execution** – Schedule jobs to run at a specific future time (RFC3339)
 - **Priority Queues** – Prioritize critical workloads (Critical, High, Normal, Low)
-- **Dead Letter Queue (DLQ)** – Automatic handling and inspection of permanently failed jobs
+- **Dead Letter Queue (DLQ)** – Automatic handling, inspection, and retry of permanently failed jobs
 - **Postgres-Backed Queue** – `SELECT FOR UPDATE SKIP LOCKED` for reliable, transactional job claiming
 - **Graceful Shutdown** – SIGTERM handling with in-flight execution completion
 - **Log Streaming** – Real-time log streaming from workers to controller
 - **Timeout Enforcement** – Hard deadlines via `context.WithTimeout`
 - **Heartbeat-Based Visibility** – Long-running jobs extend queue visibility to prevent duplicate pickup
+- **Observability** – OpenTelemetry tracing with Jaeger integration, Prometheus metrics
+- **Auto-Migrations** – Schema migrations run automatically with `--migrate` flag
+- **Rate Limiting** – Per-tenant request rate limiting with configurable limits
 
 ## Project Structure
 
@@ -53,14 +57,17 @@ jobplane/
 ├── cmd/
 │   ├── controller/     # HTTP API server ("Brain")
 │   ├── worker/         # Job executor agent ("Muscle")
-│   └── cli/            # Developer terminal tool
+│   └── cli/            # Developer terminal tool (jobctl)
 ├── internal/
+│   ├── auth/           # Token validation
 │   ├── config/         # Environment configuration
-│   ├── store/          # Database layer + queue
-│   ├── worker/         # Agent logic + runtime interface
 │   ├── controller/     # HTTP handlers + middleware
-│   └── logger/         # Structured logging (slog)
-└── pkg/api/            # Shared request/response types
+│   ├── logger/         # Structured logging (slog)
+│   ├── observability/  # OpenTelemetry tracing setup
+│   ├── store/          # Database layer + queue + migrations
+│   └── worker/         # Agent logic + runtime interface
+├── pkg/api/            # Shared request/response types
+└── charts/             # Helm charts for Kubernetes deployment
 ```
 
 ## Quick Start
@@ -68,60 +75,108 @@ jobplane/
 ### Prerequisites
 
 - Go 1.25+
-- PostgreSQL 16+
-- Docker (optional, for container runtime)
+- Docker (for PostgreSQL + Jaeger, and optional container runtime)
+
+### Setup
+
+```bash
+
+# Required environment variables:
+DATABASE_URL=postgres://user:password@localhost:5432/jobplane?sslmode=disable
+SYSTEM_SECRET=<your-super-secret-key>
+JOBPLANE_TOKEN=<your-api-token>
+```
 
 ### Build
 
 ```bash
-make build-all
+make build-all         # Build controller, worker, and CLI
+make build-cli         # Build CLI only
 ```
 
 ### Run
 
 ```bash
-# Start PostgreSQL
-docker run -d --name jobplane-db \
-  -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=jobplane \
-  -p 5432:5432 postgres:16
+# Terminal 1: Start PostgreSQL + Jaeger, run controller with auto-migration
+make run-migrate
 
-# Run controller
-DATABASE_URL="postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable" \
-  ./bin/controller
-
-# Run worker (in another terminal)
-DATABASE_URL="postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable" \
-  ./bin/worker
+# Terminal 2: Start worker (uses RUNTIME env var: exec, docker, or kubernetes)
+make run-worker
 ```
 
 ### Submit a Job
 
 ```bash
-./bin/jobctl submit --name "hello" --image "alpine:latest" --command "echo", "Hello, jobplane!"
+# Create and immediately run
+./bin/jobctl submit --name "hello" --image "alpine:latest" \
+  -c "echo" -c "Hello, jobplane!"
+
+# With priority
+./bin/jobctl submit --name "urgent" --image "alpine:latest" \
+  -c "echo" -c "Fast!" --priority 100
 ```
 
-### Submit a high-priority Job:
+### Result Collection
+
+Jobs can write structured results that are persisted with the execution:
+
+- **Exec runtime**: Write `result.json` in your working directory
+- **Docker runtime**: Write `result.json` to `$JOBPLANE_OUTPUT_DIR/`
 
 ```bash
-./bin/jobctl submit --name "urgent" --image "alpine:latest" --command "echo", "Fast!" --priority 100
+# Create a job that writes a result
+./bin/jobctl create --name "compute" --image "exec" \
+  -c "bash" -c "-c" -c 'echo {"score":61} > result.json'
+
+# Run it
+./bin/jobctl run <job-id>
+
+# Check execution status and result
+./bin/jobctl status <execution-id>
 ```
 
-### Schedule a Job for later:
+Results are stored as JSONB and returned via the `GET /executions/{id}` endpoint. Max result size: 1MB.
+
+### Schedule a Job
 
 ```bash
-# First create the job
-./bin/jobctl create --name "nightly" --image "alpine" --command "echo", "nightly run"
-# Then run it with a schedule
+# Create the job
+./bin/jobctl create --name "nightly" --image "alpine" -c "echo" -c "nightly run"
+
+# Run it at a specific time
 ./bin/jobctl run <job-id> --schedule "2024-12-31T23:59:00Z"
 ```
 
-### Manage Failed Jobs (DLQ):
+### Manage Failed Jobs (DLQ)
 
 ```bash
 ./bin/jobctl dlq list
 ./bin/jobctl dlq retry <execution-id>
 ```
+
+## API Endpoints
+
+### Public (Token Auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/tenants` | Create a new tenant |
+| `PATCH` | `/tenants/{id}` | Update tenant settings |
+| `POST` | `/jobs` | Create a job definition |
+| `POST` | `/jobs/{id}/run` | Run a job (creates execution) |
+| `GET` | `/executions/{id}` | Get execution status + result |
+| `GET` | `/executions/{id}/logs` | Get execution logs |
+| `GET` | `/executions/dlq` | List dead-letter queue |
+| `POST` | `/executions/dlq/{id}/retry` | Retry a DLQ execution |
+
+### Internal (System Secret Auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/internal/executions/dequeue` | Worker claims jobs |
+| `PUT` | `/internal/executions/{id}/heartbeat` | Extend visibility |
+| `PUT` | `/internal/executions/{id}/result` | Submit execution result |
+| `POST` | `/internal/executions/{id}/logs` | Push execution logs |
 
 ## Architecture Invariants
 
@@ -139,12 +194,19 @@ DATABASE_URL="postgres://postgres:secret@localhost:5432/jobplane?sslmode=disable
 # Run tests
 make test
 
+# Run tests with coverage
+make test-coverage
+
 # Lint
 make lint
 
 # Format
 go fmt ./...
 ```
+
+### Observability
+
+Jaeger UI is available at [http://localhost:16686](http://localhost:16686) when running with `docker-compose`.
 
 ## License
 

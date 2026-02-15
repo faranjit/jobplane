@@ -15,14 +15,14 @@ var submitCmd = &cobra.Command{
 This is a convenience command that combines 'create' and 'run' into a single step.
 
 Example:
-  jobctl submit --name "my-job" --image "alpine:latest" --command "echo", "hello"
-  jobctl submit --name "python-script" --image "python:3.11" --command "python", "-c", "print('hello')" --timeout 300
-  jobctl submit --name "urgent" --image "alpine" --command "echo,urgent" --priority 50`,
+  jobctl submit --name "my-job" --image "alpine:latest" -c "echo" -c "hello"
+  jobctl submit --name "python-script" --image "python:3.11" -c "python" -c "-c" -c "print('hello')" --timeout 300
+  jobctl submit --name "urgent" --image "alpine" -c "echo" -c "urgent" --priority 50`,
 	Run: func(cmd *cobra.Command, args []string) {
 		flags := cmd.Flags()
 		name, _ := flags.GetString("name")
 		image, _ := flags.GetString("image")
-		command, _ := flags.GetStringSlice("command")
+		command, _ := flags.GetStringArray("command")
 		timeout, _ := flags.GetInt("timeout")
 		priority, _ := flags.GetInt("priority")
 
@@ -90,7 +90,7 @@ func init() {
 	flags := submitCmd.Flags()
 	flags.StringP("name", "n", "", "Name of the job (required)")
 	flags.StringP("image", "i", "", "Container image or 'ignored' for exec runtime (required)")
-	flags.StringSliceP("command", "c", []string{}, "Command to execute (required)")
+	flags.StringArrayP("command", "c", []string{}, "Command to execute (required)")
 	flags.Int("timeout", 0, "Default timeout in seconds (optional)")
 	flags.IntP("priority", "p", 0, "Job priority (higher is more urgent)")
 

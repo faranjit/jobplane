@@ -11,6 +11,8 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -311,6 +313,8 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 		a.sendResult(context.Background(), execID, nil, fmt.Sprintf("Failed to start runtime. %s", err.Error()))
 		return // status already defaults to "failure"
 	}
+	// Cleanup
+	defer handle.Cleanup()
 
 	// Start heartbeat to refresh visibility timeout during execution
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(context.Background())
@@ -359,7 +363,14 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	if result.ExitCode == 0 {
 		log.Printf("Execution %s completed successfully", execID)
 		status = "success" // This will be captured by the deferred function
-		a.sendResult(context.Background(), execID, &result.ExitCode, "")
+
+		execResult, err := a.getResultFromFile(handle)
+		if err != nil {
+			log.Printf("Failed to get result from file: %v", err)
+			// TODO: decide if this is a failure or not
+		}
+
+		a.sendResultWithResult(context.Background(), execID, &result.ExitCode, "", execResult)
 	} else {
 		log.Printf("Execution %s failed with code %d", execID, result.ExitCode)
 		errorMessage := fmt.Sprintf("Exit code %d", result.ExitCode)
@@ -372,12 +383,45 @@ func (a *Agent) processItem(ctx context.Context, execID uuid.UUID, payload json.
 	}
 }
 
+func (a *Agent) getResultFromFile(handle runtime.Handle) (json.RawMessage, error) {
+	resultDir := handle.ResultDir()
+	if resultDir == "" {
+		return nil, nil // Runtime doesn't support result collection
+	}
+	resultFile := filepath.Join(resultDir, "result.json")
+	resultData, err := os.ReadFile(resultFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Failed to read result file: %v", err)
+		}
+		return nil, err
+	}
+
+	if len(resultData) > 1<<20 {
+		log.Printf("Result file exceeds 1MB (%d bytes), skipping", len(resultData))
+		return nil, nil
+	}
+
+	var execResult json.RawMessage
+	if err := json.Unmarshal(resultData, &execResult); err != nil {
+		log.Printf("Invalid JSON in result file: %v", err)
+		return nil, err
+	}
+
+	return execResult, nil
+}
+
 func (a *Agent) sendResult(ctx context.Context, executionID uuid.UUID, exitCode *int, errMsg string) error {
+	return a.sendResultWithResult(ctx, executionID, exitCode, errMsg, nil)
+}
+
+func (a *Agent) sendResultWithResult(ctx context.Context, executionID uuid.UUID, exitCode *int, errMsg string, result json.RawMessage) error {
 	url := fmt.Sprintf("%s/internal/executions/%s/result", a.config.ControllerURL, executionID)
 
 	body := api.ExecutionResultRequest{
 		ExitCode: exitCode,
 		Error:    errMsg,
+		Result:   result,
 	}
 	reqBody, _ := json.Marshal(body)
 	resp, err := a.doWithRetry(ctx, http.MethodPut, url, reqBody)

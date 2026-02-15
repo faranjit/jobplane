@@ -135,7 +135,7 @@ func (m *mockStore) SetVisibleAfter(ctx context.Context, tx store.DBTransaction,
 	return m.setVisibleErr
 }
 
-func (m *mockStore) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int) error {
+func (m *mockStore) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int, result json.RawMessage) error {
 	return m.completeErr
 }
 

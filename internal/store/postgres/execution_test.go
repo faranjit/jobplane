@@ -27,14 +27,15 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	completedAt := time.Now().Add(-4 * time.Minute)
 	now := time.Now()
 
-	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "job_id", "tenant_id", "status", "priority", "attempt",
-			"exit_code", "error_message", "retried_from", "scheduled_at", "created_at", "started_at", "finished_at",
+			"exit_code", "error_message", "retried_from",
+			"scheduled_at", "created_at", "started_at", "finished_at", "result",
 		}).AddRow(
 			executionID, jobID, tenantID, "SUCCEEDED", 61, 1,
-			exitCode, errMsg, nil, now, now, startedAt, completedAt,
+			exitCode, errMsg, nil, now, now, startedAt, completedAt, []byte(nil),
 		))
 
 	execution, err := s.GetExecutionByID(ctx, executionID)
@@ -79,7 +80,7 @@ func TestGetExecutionByID_NotFound(t *testing.T) {
 	ctx := context.Background()
 	executionID := uuid.New()
 
-	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnError(sql.ErrNoRows)
 
@@ -99,7 +100,7 @@ func TestGetExecutionByID_DatabaseError(t *testing.T) {
 	ctx := context.Background()
 	executionID := uuid.New()
 
-	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnError(sql.ErrConnDone)
 

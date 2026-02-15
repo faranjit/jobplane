@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"jobplane/pkg/api"
 	"time"
@@ -83,6 +84,17 @@ func printStatus(cmd *cobra.Command, execution *api.ExecutionResponse) {
 			colorCyan, formatDuration(duration), colorReset)
 	} else {
 		cmd.Printf("%sFinished:%s    %s\n", colorDim, colorReset, formatTimeWithRelative(execution.CompletedAt))
+	}
+
+	// Result (if present)
+	if len(execution.Result) > 0 {
+		var pretty json.RawMessage
+		if err := json.Unmarshal(execution.Result, &pretty); err == nil {
+			indented, err := json.MarshalIndent(pretty, "             ", "  ")
+			if err == nil {
+				cmd.Printf("%sResult:%s      %s\n", colorDim, colorReset, string(indented))
+			}
+		}
 	}
 }
 

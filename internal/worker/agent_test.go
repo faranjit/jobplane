@@ -111,6 +111,14 @@ func (m *MockHandle) StreamLogs(ctx context.Context) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
+func (m *MockHandle) ResultDir() string {
+	return "/"
+}
+
+func (m *MockHandle) Cleanup() error {
+	return nil
+}
+
 // setupTestAgent creates a mocked controller server and an Agent configured to talk to it.
 func setupTestAgent(t *testing.T, rt runtime.Runtime) *Agent {
 	t.Helper()

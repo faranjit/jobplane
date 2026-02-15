@@ -220,3 +220,17 @@ func (h *ExecHandle) Stop(ctx context.Context) error {
 func (h *ExecHandle) StreamLogs(ctx context.Context) (io.ReadCloser, error) {
 	return h.combined, nil
 }
+
+// ResultDir returns the directory where the result of this job is stored.
+func (h *ExecHandle) ResultDir() string {
+	return h.workDir
+}
+
+// Cleanup removes the temporary directory where the result of this job is stored.
+// This is called by the worker after the job is completed.
+func (h *ExecHandle) Cleanup() error {
+	if h.workDir != "" {
+		return os.RemoveAll(h.workDir)
+	}
+	return nil
+}

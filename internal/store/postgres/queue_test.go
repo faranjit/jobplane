@@ -278,10 +278,10 @@ func TestComplete_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectExec(`UPDATE executions`).
-		WithArgs("SUCCEEDED", exitCode, executionID).
+		WithArgs("SUCCEEDED", exitCode, sqlmock.AnyArg(), executionID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := store.Complete(ctx, nil, executionID, exitCode)
+	err := store.Complete(ctx, nil, executionID, exitCode, nil)
 	if err != nil {
 		t.Fatalf("Complete failed: %v", err)
 	}

@@ -2,6 +2,7 @@
 package store
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,6 +47,7 @@ type Execution struct {
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	CompletedAt  *time.Time
+	Result       json.RawMessage
 }
 
 type LogEntry struct {

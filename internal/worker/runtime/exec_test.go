@@ -271,3 +271,93 @@ func TestStart_ImageFieldIgnored(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", result.ExitCode)
 	}
 }
+
+func TestResultDir_ReturnsWorkDir(t *testing.T) {
+	baseDir := t.TempDir()
+	rt := NewExecRuntime(baseDir)
+	execID := "test-resultdir"
+
+	ctx := context.Background()
+	handle, err := rt.Start(ctx, StartOptions{
+		Command: []string{"echo", "hello"},
+		Env:     map[string]string{"JOBPLANE_EXECUTION_ID": execID},
+	})
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	expectedDir := filepath.Join(baseDir, execID)
+	if handle.ResultDir() != expectedDir {
+		t.Errorf("expected ResultDir to be %s, got %s", expectedDir, handle.ResultDir())
+	}
+
+	handle.Wait(ctx)
+}
+
+func TestResultDir_JobWritesResultJson(t *testing.T) {
+	baseDir := t.TempDir()
+	rt := NewExecRuntime(baseDir)
+	execID := "test-result-file"
+
+	ctx := context.Background()
+	handle, err := rt.Start(ctx, StartOptions{
+		Command: []string{"sh", "-c", `echo '{"score":42}' > result.json`},
+		Env:     map[string]string{"JOBPLANE_EXECUTION_ID": execID},
+	})
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	result, err := handle.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", result.ExitCode)
+	}
+
+	// Verify result.json exists at ResultDir/result.json
+	resultFile := filepath.Join(handle.ResultDir(), "result.json")
+	data, err := os.ReadFile(resultFile)
+	if err != nil {
+		t.Fatalf("Failed to read result.json: %v", err)
+	}
+
+	expected := `{"score":42}`
+	if strings.TrimSpace(string(data)) != expected {
+		t.Errorf("expected %s, got %s", expected, string(data))
+	}
+}
+
+func TestCleanup_RemovesWorkDir(t *testing.T) {
+	baseDir := t.TempDir()
+	rt := NewExecRuntime(baseDir)
+	execID := "test-cleanup"
+
+	ctx := context.Background()
+	handle, err := rt.Start(ctx, StartOptions{
+		Command: []string{"echo", "cleanup-test"},
+		Env:     map[string]string{"JOBPLANE_EXECUTION_ID": execID},
+	})
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	handle.Wait(ctx)
+
+	workDir := filepath.Join(baseDir, execID)
+	// Verify dir exists before cleanup
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		t.Fatal("work directory should exist before cleanup")
+	}
+
+	// Cleanup
+	if err := handle.Cleanup(); err != nil {
+		t.Fatalf("Cleanup failed: %v", err)
+	}
+
+	// Verify dir is gone
+	if _, err := os.Stat(workDir); !os.IsNotExist(err) {
+		t.Error("work directory should be removed after cleanup")
+	}
+}

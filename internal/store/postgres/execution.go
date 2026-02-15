@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {
-	query := "SELECT * FROM executions WHERE id = $1"
+	query := "SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = $1"
 
 	var execution store.Execution
 
@@ -17,7 +17,8 @@ func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Exec
 		&execution.ID, &execution.JobID, &execution.TenantID,
 		&execution.Status, &execution.Priority, &execution.Attempt,
 		&execution.ExitCode, &execution.ErrorMessage, &execution.RetriedFrom,
-		&execution.CreatedAt, &execution.ScheduledAt, &execution.StartedAt, &execution.CompletedAt,
+		&execution.CreatedAt, &execution.ScheduledAt, &execution.StartedAt,
+		&execution.CompletedAt, &execution.Result,
 	)
 	if err != nil {
 		return nil, err

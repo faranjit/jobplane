@@ -69,6 +69,56 @@ func TestStatusCommand_Success(t *testing.T) {
 	if !strings.Contains(output, "Attempt") {
 		t.Errorf("expected Attempt field, got: %s", output)
 	}
+	if strings.Contains(output, "Result:") {
+		t.Errorf("expected no Result line when result is nil, got: %s", output)
+	}
+}
+
+func TestStatusCommand_WithResult(t *testing.T) {
+	resetViper()
+
+	startTime := time.Now().Add(-10 * time.Minute)
+	endTime := time.Now().Add(-9 * time.Minute)
+	exitCode := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := api.ExecutionResponse{
+			ID:          "exec-with-result",
+			Status:      "SUCCEEDED",
+			Attempt:     1,
+			StartedAt:   &startTime,
+			CompletedAt: &endTime,
+			ExitCode:    &exitCode,
+			Result:      json.RawMessage(`{"score":42,"status":"ok"}`),
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	viper.Set("url", server.URL)
+	viper.Set("token", "test-token")
+
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stdout)
+	rootCmd.SetArgs([]string{"status", "exec-with-result"})
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Result:") {
+		t.Errorf("expected Result line in output, got: %s", output)
+	}
+	if !strings.Contains(output, "score") {
+		t.Errorf("expected 'score' in result, got: %s", output)
+	}
+	if !strings.Contains(output, "42") {
+		t.Errorf("expected '42' in result, got: %s", output)
+	}
 }
 
 func TestStatusCommand_MissingToken(t *testing.T) {

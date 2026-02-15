@@ -20,7 +20,7 @@ type Queue interface {
 	DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit int) ([]QueueItem, error)
 
 	// Complete marks execution as SUCCEEDED/COMPLETED and saves the exit code.
-	Complete(ctx context.Context, tx DBTransaction, executionID uuid.UUID, exitCode int) error
+	Complete(ctx context.Context, tx DBTransaction, executionID uuid.UUID, exitCode int, result json.RawMessage) error
 
 	// Fail marks execution as FAILED.
 	// If retries are exhausted, it saves the errMsg.

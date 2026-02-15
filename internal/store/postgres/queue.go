@@ -140,7 +140,7 @@ func (s *Store) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, limit i
 }
 
 // Complete handles a successful job execution.
-func (s *Store) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int) error {
+func (s *Store) Complete(ctx context.Context, tx store.DBTransaction, executionID uuid.UUID, exitCode int, result json.RawMessage) error {
 	executor := s.getExecutor(tx)
 
 	// Delete from Queue
@@ -152,9 +152,9 @@ func (s *Store) Complete(ctx context.Context, tx store.DBTransaction, executionI
 	// Update History
 	_, err = executor.ExecContext(ctx, `
 		UPDATE executions 
-		SET status = $1, exit_code = $2, finished_at = NOW() 
-		WHERE id = $3
-	`, store.ExecutionStatusCompleted, exitCode, executionID)
+		SET status = $1, exit_code = $2, result = $3, finished_at = NOW()
+		WHERE id = $4
+	`, store.ExecutionStatusCompleted, exitCode, result, executionID)
 
 	return err
 }

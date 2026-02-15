@@ -38,4 +38,11 @@ type Handle interface {
 
 	// StreamLogs returns a reader for this specific job's logs.
 	StreamLogs(ctx context.Context) (io.ReadCloser, error)
+
+	// ResultDir returns the directory where the result of this job is stored.
+	ResultDir() string
+
+	// Cleanup removes the temporary directory where the result of this job is stored.
+	// This is called by the worker after the job is completed.
+	Cleanup() error
 }

@@ -279,6 +279,17 @@ func (h *KubernetesHandle) StreamLogs(ctx context.Context) (io.ReadCloser, error
 	return req.Stream(ctx)
 }
 
+// ResultDir returns the directory where the result of this job is stored.
+func (h *KubernetesHandle) ResultDir() string {
+	return "" // Results not yet supported on Kubernetes runtime
+}
+
+// Cleanup removes the temporary directory where the result of this job is stored.
+// This is called by the worker after the job is completed.
+func (h *KubernetesHandle) Cleanup() error {
+	return nil
+}
+
 // waitForContainerReady waits for the container to start (or complete).
 func (h *KubernetesHandle) waitForContainerReady(ctx context.Context) error {
 	ticker := time.NewTicker(500 * time.Millisecond)

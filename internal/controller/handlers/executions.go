@@ -46,6 +46,7 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 		CompletedAt: execution.CompletedAt,
 		ExitCode:    execution.ExitCode,
 		Error:       execution.ErrorMessage,
+		Result:      execution.Result,
 	}
 
 	h.respondJson(w, http.StatusOK, executionResponse)
@@ -222,7 +223,7 @@ func (h *Handlers) InternalUpdateResult(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.ExitCode != nil && *req.ExitCode == 0 && req.Error == "" {
-		err := h.store.Complete(ctx, nil, executionID, 0)
+		err := h.store.Complete(ctx, nil, executionID, 0, req.Result)
 		if err != nil {
 			h.httpError(w, "Failed to mark complete", http.StatusInternalServerError)
 			return

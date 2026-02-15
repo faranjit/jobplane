@@ -69,21 +69,23 @@ type JobStatusResponse struct {
 
 // ExecutionResponse represents an execution in API responses.
 type ExecutionResponse struct {
-	ID          string     `json:"id"`
-	Status      string     `json:"status"`
-	Priority    int        `json:"priority"`
-	Attempt     int        `json:"attempt"`
-	ScheduledAt *time.Time `json:"scheduled_at"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	ExitCode    *int       `json:"exit_code,omitempty"`
-	Error       *string    `json:"error,omitempty"`
+	ID          string          `json:"id"`
+	Status      string          `json:"status"`
+	Priority    int             `json:"priority"`
+	Attempt     int             `json:"attempt"`
+	ScheduledAt *time.Time      `json:"scheduled_at"`
+	StartedAt   *time.Time      `json:"started_at,omitempty"`
+	CompletedAt *time.Time      `json:"completed_at,omitempty"`
+	ExitCode    *int            `json:"exit_code,omitempty"`
+	Error       *string         `json:"error,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
 }
 
 // ExecutionResultRequest represents the result of an execution
 type ExecutionResultRequest struct {
-	ExitCode *int   `json:"exit_code"`
-	Error    string `json:"error"`
+	ExitCode *int            `json:"exit_code"`
+	Error    string          `json:"error"`
+	Result   json.RawMessage `json:"result"`
 }
 
 // DequeueRequest represents the payload sent by a worker to claim new jobs.
