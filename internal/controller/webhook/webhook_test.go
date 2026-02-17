@@ -10,6 +10,7 @@ import (
 	"jobplane/pkg/api"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 )
 
 type mockCallbackStore struct {
+	mu         sync.Mutex
 	lastID     uuid.UUID
 	lastStatus string
 	callCount  int32
@@ -25,10 +27,30 @@ type mockCallbackStore struct {
 }
 
 func (m *mockCallbackStore) UpdateCallbackStatus(_ context.Context, id uuid.UUID, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.lastID = id
 	m.lastStatus = status
-	atomic.AddInt32(&m.callCount, 1)
+	m.callCount++
 	return m.err
+}
+
+func (m *mockCallbackStore) CallCount() int32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.callCount
+}
+
+func (m *mockCallbackStore) LastStatus() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastStatus
+}
+
+func (m *mockCallbackStore) LastID() uuid.UUID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastID
 }
 
 // helper to build a test execution with a callback URL pointing at the test server
@@ -83,11 +105,11 @@ func TestDeliver_Success(t *testing.T) {
 	dispatcher.Shutdown(context.Background())
 
 	// Verify store was updated with DELIVERED
-	if mockStore.lastStatus != store.CallbackStatusDelivered {
-		t.Errorf("got status %q, want %q", mockStore.lastStatus, store.CallbackStatusDelivered)
+	if mockStore.LastStatus() != store.CallbackStatusDelivered {
+		t.Errorf("got status %q, want %q", mockStore.LastStatus(), store.CallbackStatusDelivered)
 	}
-	if mockStore.lastID != execution.ID {
-		t.Errorf("got ID %v, want %v", mockStore.lastID, execution.ID)
+	if mockStore.LastID() != execution.ID {
+		t.Errorf("got ID %v, want %v", mockStore.LastID(), execution.ID)
 	}
 
 	// Verify payload
@@ -135,7 +157,7 @@ func TestDeliver_NilCallbackURL(t *testing.T) {
 	dispatcher.Deliver(context.Background(), execution)
 	dispatcher.Shutdown(context.Background())
 
-	if atomic.LoadInt32(&mockStore.callCount) != 0 {
+	if mockStore.CallCount() != 0 {
 		t.Error("store should not be called when callback URL is nil")
 	}
 }
@@ -154,7 +176,7 @@ func TestDeliver_EmptyCallbackURL(t *testing.T) {
 	dispatcher.Deliver(context.Background(), execution)
 	dispatcher.Shutdown(context.Background())
 
-	if atomic.LoadInt32(&mockStore.callCount) != 0 {
+	if mockStore.CallCount() != 0 {
 		t.Error("store should not be called when callback URL is empty")
 	}
 }
@@ -211,8 +233,11 @@ func TestDeliver_RetriesOnServerError(t *testing.T) {
 	if atomic.LoadInt32(&attempts) != 3 {
 		t.Errorf("got %d attempts, want 3", atomic.LoadInt32(&attempts))
 	}
-	if mockStore.lastStatus != store.CallbackStatusDelivered {
-		t.Errorf("got status %q, want %q", mockStore.lastStatus, store.CallbackStatusDelivered)
+	if mockStore.LastStatus() != store.CallbackStatusDelivered {
+		t.Errorf("got status %q, want %q", mockStore.LastStatus(), store.CallbackStatusDelivered)
+	}
+	if mockStore.CallCount() != 1 {
+		t.Errorf("got %d calls, want 1", mockStore.CallCount())
 	}
 }
 
@@ -237,8 +262,8 @@ func TestDeliver_ExhaustsRetries(t *testing.T) {
 	if atomic.LoadInt32(&attempts) != expectedAttempts {
 		t.Errorf("got %d attempts, want %d", atomic.LoadInt32(&attempts), expectedAttempts)
 	}
-	if mockStore.lastStatus != store.CallbackStatusFailed {
-		t.Errorf("got status %q, want %q", mockStore.lastStatus, store.CallbackStatusFailed)
+	if mockStore.LastStatus() != store.CallbackStatusFailed {
+		t.Errorf("got status %q, want %q", mockStore.LastStatus(), store.CallbackStatusFailed)
 	}
 }
 
@@ -250,8 +275,8 @@ func TestDeliver_UnreachableURL(t *testing.T) {
 	dispatcher.Deliver(context.Background(), execution)
 	dispatcher.Shutdown(context.Background())
 
-	if mockStore.lastStatus != store.CallbackStatusFailed {
-		t.Errorf("got status %q, want %q", mockStore.lastStatus, store.CallbackStatusFailed)
+	if mockStore.LastStatus() != store.CallbackStatusFailed {
+		t.Errorf("got status %q, want %q", mockStore.LastStatus(), store.CallbackStatusFailed)
 	}
 }
 
@@ -275,8 +300,8 @@ func TestDeliver_NonRetryableError_StopsImmediately(t *testing.T) {
 	if atomic.LoadInt32(&attempts) != 1 {
 		t.Errorf("got %d attempts, want 1 (should not retry 4xx)", atomic.LoadInt32(&attempts))
 	}
-	if mockStore.lastStatus != store.CallbackStatusFailed {
-		t.Errorf("got status %q, want %q", mockStore.lastStatus, store.CallbackStatusFailed)
+	if mockStore.LastStatus() != store.CallbackStatusFailed {
+		t.Errorf("got status %q, want %q", mockStore.LastStatus(), store.CallbackStatusFailed)
 	}
 }
 
@@ -527,7 +552,7 @@ func TestShutdown_WaitsForInFlight(t *testing.T) {
 		t.Fatal("Shutdown did not return after delivery completed")
 	}
 
-	if mockStore.lastStatus != store.CallbackStatusDelivered {
-		t.Errorf("got status %q, want %q", mockStore.lastStatus, store.CallbackStatusDelivered)
+	if mockStore.LastStatus() != store.CallbackStatusDelivered {
+		t.Errorf("got status %q, want %q", mockStore.LastStatus(), store.CallbackStatusDelivered)
 	}
 }
