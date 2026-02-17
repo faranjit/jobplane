@@ -37,7 +37,7 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID, ok := middleware.TenantIDFromContext(ctx)
+	tenant, ok := middleware.TenantFromContext(ctx)
 	if !ok {
 		h.httpError(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -45,15 +45,26 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	jobID := uuid.New()
 
+	callbackURL := tenant.CallbackURL // tenant default
+	if req.CallbackURL != nil {
+		callbackURL = req.CallbackURL // job override
+	}
+	callbackHeaders := tenant.CallbackHeaders // tenant default
+	if req.CallbackHeaders != nil {
+		callbackHeaders, _ = json.Marshal(req.CallbackHeaders) // job override
+	}
+
 	job := &store.Job{
-		ID:             jobID,
-		TenantID:       tenantID,
-		Name:           req.Name,
-		Image:          req.Image,
-		Command:        req.Command,
-		DefaultTimeout: req.DefaultTimeout,
-		Priority:       req.Priority,
-		CreatedAt:      time.Now().UTC(),
+		ID:              jobID,
+		TenantID:        tenant.ID,
+		Name:            req.Name,
+		Image:           req.Image,
+		Command:         req.Command,
+		DefaultTimeout:  req.DefaultTimeout,
+		Priority:        req.Priority,
+		CallbackURL:     callbackURL,
+		CallbackHeaders: callbackHeaders,
+		CreatedAt:       time.Now().UTC(),
 	}
 
 	tx, err := h.store.BeginTx(ctx)
@@ -126,6 +137,22 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var callbackStatus *string
+	callbackStatus = nil
+	callbackURL := job.CallbackURL // job default
+	if req.CallbackURL != nil {
+		callbackURL = req.CallbackURL // execution override
+	}
+	if callbackURL != nil && *callbackURL != "" {
+		pending := string(store.CallbackStatusPending)
+		callbackStatus = &pending
+	}
+
+	callbackHeaders := job.CallbackHeaders // job default
+	if req.CallbackHeaders != nil {
+		callbackHeaders, _ = json.Marshal(req.CallbackHeaders) // execution override
+	}
+
 	status := store.ExecutionStatusPending
 	now := time.Now().UTC()
 	scheduledAt := now
@@ -141,13 +168,16 @@ func (h *Handlers) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	execution := &store.Execution{
-		ID:          uuid.New(),
-		JobID:       jobID,
-		TenantID:    tenant.ID,
-		Status:      status,
-		Priority:    job.Priority,
-		ScheduledAt: &scheduledAt,
-		CreatedAt:   createdAt,
+		ID:              uuid.New(),
+		JobID:           jobID,
+		TenantID:        tenant.ID,
+		Status:          status,
+		Priority:        job.Priority,
+		CallbackURL:     callbackURL,
+		CallbackHeaders: callbackHeaders,
+		CallbackStatus:  callbackStatus,
+		ScheduledAt:     &scheduledAt,
+		CreatedAt:       createdAt,
 	}
 
 	tx, err := h.store.BeginTx(ctx)

@@ -96,6 +96,14 @@ func printStatus(cmd *cobra.Command, execution *api.ExecutionResponse) {
 			}
 		}
 	}
+
+	// Callback status (if configured)
+	if execution.CallbackURL != nil && *execution.CallbackURL != "" {
+		cmd.Printf("%sCallback:%s    %s\n", colorDim, colorReset, *execution.CallbackURL)
+		if execution.CallbackStatus != "" {
+			cmd.Printf("%sCB Status:%s   %s\n", colorDim, colorReset, colorizeCallbackStatus(execution.CallbackStatus))
+		}
+	}
 }
 
 // ANSI color codes
@@ -135,6 +143,19 @@ func colorizeStatus(status string) string {
 		return icon + " " + colorYellow + status + colorReset
 	case "PENDING":
 		return icon + " " + colorCyan + status + colorReset
+	default:
+		return status
+	}
+}
+
+func colorizeCallbackStatus(status string) string {
+	switch status {
+	case "DELIVERED":
+		return colorGreen + "✓ " + status + colorReset
+	case "FAILED":
+		return colorRed + "✗ " + status + colorReset
+	case "PENDING":
+		return colorYellow + "⏳ " + status + colorReset
 	default:
 		return status
 	}

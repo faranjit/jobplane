@@ -32,6 +32,11 @@ type Handlers struct {
 	store     StoreFactory
 	config    HandlerConfig
 	callbacks Callbacks
+	webhook   WebhookDispatcher
+}
+
+type WebhookDispatcher interface {
+	Deliver(ctx context.Context, execution *store.Execution)
 }
 
 // Callbacks holds optional callbacks for handlers.
@@ -49,6 +54,11 @@ func New(s StoreFactory, c HandlerConfig) *Handlers {
 // WithCallbacks returns a new Handlers instance with the given callbacks.
 func (h *Handlers) WithCallbacks(c Callbacks) *Handlers {
 	h.callbacks = c
+	return h
+}
+
+func (h *Handlers) WithWebhook(wd WebhookDispatcher) *Handlers {
+	h.webhook = wd
 	return h
 }
 

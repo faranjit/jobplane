@@ -5,10 +5,24 @@ import (
 	"database/sql"
 	"encoding/json"
 	"jobplane/internal/store"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// Mock webhook dispatcher
+type mockWebhookDispatcher struct {
+	callCount int32
+}
+
+func (m *mockWebhookDispatcher) Deliver(ctx context.Context, execution *store.Execution) {
+	atomic.AddInt32(&m.callCount, 1)
+}
+
+func (m *mockWebhookDispatcher) called() int {
+	return int(atomic.LoadInt32(&m.callCount))
+}
 
 // Mock transaction
 type mockTx struct{}
@@ -50,6 +64,7 @@ type mockStore struct {
 	failErr                    error
 	countRunningExecutionsResp int64
 	countRunningExecutionsErr  error
+	updateCallbackStatusErr    error
 
 	// Log Hooks
 	addLogEntryErr       error
@@ -118,6 +133,10 @@ func (m *mockStore) DequeueBatch(ctx context.Context, tenantIDs []uuid.UUID, lim
 
 func (m *mockStore) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {
 	return m.getExecutionResp, m.getExecutionErr
+}
+
+func (m *mockStore) UpdateCallbackStatus(ctx context.Context, executionID uuid.UUID, status string) error {
+	return m.updateCallbackStatusErr
 }
 
 func (m *mockStore) AddLogEntry(ctx context.Context, executionID uuid.UUID, content string) error {

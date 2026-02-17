@@ -68,6 +68,56 @@ func TestRunCommand_Success(t *testing.T) {
 	}
 }
 
+func TestRunCommand_WithCallbackURL(t *testing.T) {
+	resetViper()
+
+	// Reset the package-level flag var from previous tests
+	callbackURL = ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Decode the body and verify callback_url is present
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+
+		cbURL, ok := body["callback_url"]
+		if !ok {
+			t.Error("expected callback_url in request body, but it was missing")
+		}
+		if cbURL != "https://hooks.example.com/done" {
+			t.Errorf("expected callback_url 'https://hooks.example.com/done', got: %v", cbURL)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"execution_id": "exec-cb-123",
+		})
+	}))
+	defer server.Close()
+
+	viper.Set("url", server.URL)
+	viper.Set("token", "test-token")
+
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stdout)
+	rootCmd.SetArgs([]string{"run", "test-job-id", "--callback-url", "https://hooks.example.com/done"})
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Execution started") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+	if !strings.Contains(output, "exec-cb-123") {
+		t.Errorf("expected execution ID in output, got: %s", output)
+	}
+}
+
 func TestRunCommand_MissingToken(t *testing.T) {
 	resetViper()
 

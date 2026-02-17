@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"jobplane/internal/controller/middleware"
 	"jobplane/pkg/api"
@@ -47,6 +48,11 @@ func (h *Handlers) GetExecution(w http.ResponseWriter, r *http.Request) {
 		ExitCode:    execution.ExitCode,
 		Error:       execution.ErrorMessage,
 		Result:      execution.Result,
+		CallbackURL: execution.CallbackURL,
+	}
+
+	if execution.CallbackStatus != nil {
+		executionResponse.CallbackStatus = *execution.CallbackStatus
 	}
 
 	h.respondJson(w, http.StatusOK, executionResponse)
@@ -236,5 +242,32 @@ func (h *Handlers) InternalUpdateResult(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	if h.webhook != nil {
+		go func() {
+			if err := h.triggerWebhook(context.Background(), executionID); err != nil {
+				log.Printf("[webhook] triggerWebhook failed for %s: %v", executionID, err)
+			}
+		}()
+	}
+
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handlers) triggerWebhook(ctx context.Context, executionID uuid.UUID) error {
+	if h.webhook == nil {
+		return nil
+	}
+
+	execution, err := h.store.GetExecutionByID(ctx, executionID)
+	if err != nil {
+		return err
+	}
+
+	if execution.CallbackURL == nil {
+		return nil
+	}
+
+	h.webhook.Deliver(ctx, execution)
+
+	return nil
 }

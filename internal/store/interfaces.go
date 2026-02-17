@@ -50,6 +50,9 @@ type JobStore interface {
 	// GetExecutionByID returns an execution by its ID.
 	GetExecutionByID(ctx context.Context, id uuid.UUID) (*Execution, error)
 
+	// UpdateCallbackStatus updates the callback status of an execution.
+	UpdateCallbackStatus(ctx context.Context, executionID uuid.UUID, status string) error
+
 	// AddLogEntry inserts a chunk of logs for an execution.
 	AddLogEntry(ctx context.Context, executionID uuid.UUID, content string) error
 

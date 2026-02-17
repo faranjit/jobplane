@@ -326,6 +326,71 @@ func TestStatusCommand_PendingExecution(t *testing.T) {
 	}
 }
 
+func TestStatusCommand_WithCallbackStatus(t *testing.T) {
+	resetViper()
+
+	startTime := time.Now().Add(-10 * time.Minute)
+	endTime := time.Now().Add(-9 * time.Minute)
+	exitCode := 0
+	cbURL := "https://hooks.example.com/done"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := api.ExecutionResponse{
+			ID:             "exec-cb",
+			Status:         "SUCCEEDED",
+			Attempt:        1,
+			StartedAt:      &startTime,
+			CompletedAt:    &endTime,
+			ExitCode:       &exitCode,
+			CallbackURL:    &cbURL,
+			CallbackStatus: "DELIVERED",
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	viper.Set("url", server.URL)
+	viper.Set("token", "test-token")
+
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stdout)
+	rootCmd.SetArgs([]string{"status", "exec-cb"})
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "hooks.example.com") {
+		t.Errorf("expected callback URL in output, got: %s", output)
+	}
+	if !strings.Contains(output, "DELIVERED") {
+		t.Errorf("expected DELIVERED callback status, got: %s", output)
+	}
+}
+
+func TestColorizeCallbackStatus(t *testing.T) {
+	tests := []struct {
+		status   string
+		contains string
+	}{
+		{"DELIVERED", "✓"},
+		{"FAILED", "✗"},
+		{"PENDING", "⏳"},
+		{"UNKNOWN", "UNKNOWN"},
+	}
+
+	for _, tt := range tests {
+		result := colorizeCallbackStatus(tt.status)
+		if !strings.Contains(result, tt.contains) {
+			t.Errorf("colorizeCallbackStatus(%s) should contain %s, got: %s", tt.status, tt.contains, result)
+		}
+	}
+}
+
 func TestColorizeStatus(t *testing.T) {
 	tests := []struct {
 		status   string

@@ -16,38 +16,45 @@ type Tenant struct {
 	RateLimit               int
 	RateLimitBurst          int
 	MaxConcurrentExecutions int // 0 = unlimited
+	CallbackURL             *string
+	CallbackHeaders         json.RawMessage
 	CreatedAt               time.Time
 }
 
 // Job represents a job definition submitted by a tenant.
 type Job struct {
-	ID             uuid.UUID
-	TenantID       uuid.UUID
-	Name           string
-	Image          string // Container image to run
-	Command        []string
-	DefaultTimeout int
-	Priority       int
-	CreatedAt      time.Time
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	Name            string
+	Image           string // Container image to run
+	Command         []string
+	DefaultTimeout  int
+	Priority        int
+	CallbackURL     *string
+	CallbackHeaders json.RawMessage
+	CreatedAt       time.Time
 }
 
 // Execution represents a single execution attempt of a job.
 // It tracks the lifecycle state (Pending -> Running -> Succeeded/Failed/Cancelled).
 type Execution struct {
-	ID           uuid.UUID
-	JobID        uuid.UUID
-	TenantID     uuid.UUID
-	Status       ExecutionStatus
-	Priority     int
-	Attempt      int
-	ExitCode     *int
-	ErrorMessage *string
-	RetriedFrom  *uuid.UUID
-	ScheduledAt  *time.Time
-	CreatedAt    time.Time
-	StartedAt    *time.Time
-	CompletedAt  *time.Time
-	Result       json.RawMessage
+	ID              uuid.UUID
+	JobID           uuid.UUID
+	TenantID        uuid.UUID
+	Status          ExecutionStatus
+	Priority        int
+	Attempt         int
+	ExitCode        *int
+	ErrorMessage    *string
+	RetriedFrom     *uuid.UUID
+	CallbackURL     *string
+	CallbackHeaders json.RawMessage
+	CallbackStatus  *string
+	Result          json.RawMessage
+	ScheduledAt     *time.Time
+	CreatedAt       time.Time
+	StartedAt       *time.Time
+	CompletedAt     *time.Time
 }
 
 type LogEntry struct {
@@ -80,4 +87,10 @@ const (
 	ExecutionStatusCompleted ExecutionStatus = "SUCCEEDED"
 	ExecutionStatusFailed    ExecutionStatus = "FAILED"
 	ExecutionStatusCancelled ExecutionStatus = "CANCELLED"
+)
+
+const (
+	CallbackStatusPending   = "PENDING"
+	CallbackStatusDelivered = "DELIVERED"
+	CallbackStatusFailed    = "FAILED"
 )

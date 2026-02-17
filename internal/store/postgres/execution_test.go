@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"regexp"
 	"testing"
 	"time"
@@ -23,19 +24,25 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	tenantID := uuid.New()
 	exitCode := 0
 	errMsg := ""
+	callbackURL := "https://hooks.example.com/jobs"
+	callbackHeaders := json.RawMessage(`{"Authorization": "Bearer abc123"}`)
+	callbackStatus := store.CallbackStatusPending
 	startedAt := time.Now().Add(-5 * time.Minute)
 	completedAt := time.Now().Add(-4 * time.Minute)
 	now := time.Now()
 
-	mock.ExpectQuery(`SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "job_id", "tenant_id", "status", "priority", "attempt",
 			"exit_code", "error_message", "retried_from",
 			"scheduled_at", "created_at", "started_at", "finished_at", "result",
+			"callback_url", "callback_headers", "callback_status",
 		}).AddRow(
 			executionID, jobID, tenantID, "SUCCEEDED", 61, 1,
-			exitCode, errMsg, nil, now, now, startedAt, completedAt, []byte(nil),
+			exitCode, errMsg, nil,
+			now, now, startedAt, completedAt, []byte(nil),
+			callbackURL, callbackHeaders, callbackStatus,
 		))
 
 	execution, err := s.GetExecutionByID(ctx, executionID)
@@ -67,6 +74,15 @@ func TestGetExecutionByID_Success(t *testing.T) {
 	if execution.Priority != 61 {
 		t.Errorf("got Priority %d, want 61", execution.Priority)
 	}
+	if *execution.CallbackURL != callbackURL {
+		t.Errorf("got CallbackURL %v, want %v", execution.CallbackURL, callbackURL)
+	}
+	if string(execution.CallbackHeaders) != string(callbackHeaders) {
+		t.Errorf("got CallbackHeaders %v, want %v", execution.CallbackHeaders, callbackHeaders)
+	}
+	if *execution.CallbackStatus != callbackStatus {
+		t.Errorf("got CallbackStatus %v, want %v", execution.CallbackStatus, callbackStatus)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled expectations: %v", err)
@@ -80,7 +96,7 @@ func TestGetExecutionByID_NotFound(t *testing.T) {
 	ctx := context.Background()
 	executionID := uuid.New()
 
-	mock.ExpectQuery(`SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnError(sql.ErrNoRows)
 
@@ -100,13 +116,56 @@ func TestGetExecutionByID_DatabaseError(t *testing.T) {
 	ctx := context.Background()
 	executionID := uuid.New()
 
-	mock.ExpectQuery(`SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT \* FROM executions WHERE id = \$1`).
 		WithArgs(executionID).
 		WillReturnError(sql.ErrConnDone)
 
 	_, err := s.GetExecutionByID(ctx, executionID)
 	if err == nil {
 		t.Error("expected error, got nil")
+	}
+}
+
+func TestUpdateCallbackStatus_Success(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	executionID := uuid.New()
+	status := "DELIVERED"
+
+	mock.ExpectExec(`UPDATE executions SET callback_status = \$1 WHERE id = \$2`).
+		WithArgs(status, executionID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err := s.UpdateCallbackStatus(ctx, executionID, status)
+	if err != nil {
+		t.Errorf("UpdateCallbackStatus failed: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestUpdateCallbackStatus_NotFound(t *testing.T) {
+	s, mock := newMockStore(t)
+	defer s.db.Close()
+
+	ctx := context.Background()
+	executionID := uuid.New()
+	status := "DELIVERED"
+
+	mock.ExpectExec(`UPDATE executions SET callback_status = \$1 WHERE id = \$2`).
+		WithArgs(status, executionID).
+		WillReturnError(sql.ErrNoRows)
+
+	err := s.UpdateCallbackStatus(ctx, executionID, status)
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+	if err != sql.ErrNoRows {
+		t.Errorf("expected sql.ErrNoRows, got %v", err)
 	}
 }
 

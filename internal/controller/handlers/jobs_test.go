@@ -29,6 +29,8 @@ func setupMetricsForTest() *metric.ManualReader {
 	return reader
 }
 
+func strPtr(s string) *string { return &s }
+
 func TestCreateJob(t *testing.T) {
 	// Common test data
 	tenantID := uuid.New()
@@ -247,6 +249,36 @@ func TestRunJob(t *testing.T) {
 				m.countRunningExecutionsResp = 101
 			},
 			expectedStatus: http.StatusTooManyRequests,
+		},
+		{
+			name:       "Success - Callback inherited from job/tenant defaults",
+			jobIDParam: jobID.String(),
+			body:       api.RunJobRequest{},
+			mockSetup: func(m *mockStore) {
+				tenantCallbackURL := "https://tenant.example.com/hook"
+				m.getJobByIDResp = &store.Job{
+					ID:              jobID,
+					TenantID:        tenantID,
+					Name:            "test-job",
+					Image:           "alpine",
+					Priority:        50,
+					CallbackURL:     &tenantCallbackURL,
+					CallbackHeaders: json.RawMessage(`{"X-Tenant":"default"}`),
+				}
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:       "Success - Callback overridden per-run",
+			jobIDParam: jobID.String(),
+			body: api.RunJobRequest{
+				CallbackURL:     strPtr("https://override.example.com/hook"),
+				CallbackHeaders: map[string]string{"X-Custom": "override-value"},
+			},
+			mockSetup: func(m *mockStore) {
+				m.getJobByIDResp = validJob
+			},
+			expectedStatus: http.StatusOK,
 		},
 	}
 

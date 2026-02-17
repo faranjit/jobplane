@@ -11,10 +11,12 @@ import (
 
 // CreateTenantRequest is the request body for creating a new tenant.
 type CreateTenantRequest struct {
-	Name                    string `json:"name"`
-	RateLimit               int    `json:"rate_limit,omitempty"`
-	RateLimitBurst          int    `json:"rate_limit_burst,omitempty"`
-	MaxConcurrentExecutions int    `json:"max_concurrent_executions,omitempty"`
+	Name                    string            `json:"name"`
+	RateLimit               int               `json:"rate_limit,omitempty"`
+	RateLimitBurst          int               `json:"rate_limit_burst,omitempty"`
+	MaxConcurrentExecutions int               `json:"max_concurrent_executions,omitempty"`
+	CallbackURL             *string           `json:"callback_url,omitempty"`
+	CallbackHeaders         map[string]string `json:"callback_headers,omitempty"`
 }
 
 // CreateTenantResponse is the response body after creating a tenant.
@@ -26,10 +28,12 @@ type CreateTenantResponse struct {
 
 // UpdateTenantRequest is the request body for updating an existing tenant.
 type UpdateTenantRequest struct {
-	Name                    string `json:"name,omitempty"`
-	RateLimit               int    `json:"rate_limit,omitempty"`
-	RateLimitBurst          int    `json:"rate_limit_burst,omitempty"`
-	MaxConcurrentExecutions int    `json:"max_concurrent_executions,omitempty"`
+	Name                    string            `json:"name,omitempty"`
+	RateLimit               int               `json:"rate_limit,omitempty"`
+	RateLimitBurst          int               `json:"rate_limit_burst,omitempty"`
+	MaxConcurrentExecutions int               `json:"max_concurrent_executions,omitempty"`
+	CallbackURL             *string           `json:"callback_url,omitempty"`
+	CallbackHeaders         map[string]string `json:"callback_headers,omitempty"`
 }
 
 // CreateJobRequest is the request body for creating a new job.
@@ -39,7 +43,9 @@ type CreateJobRequest struct {
 	Command        []string `json:"command,omitempty"`
 	DefaultTimeout int      `json:"default_timeout,omitempty"`
 	// Priority must be between 0 and 100
-	Priority int `json:"priority,omitempty"`
+	Priority        int               `json:"priority,omitempty"`
+	CallbackURL     *string           `json:"callback_url,omitempty"`
+	CallbackHeaders map[string]string `json:"callback_headers,omitempty"`
 }
 
 // CreateJobResponse is the response body after submitting a job.
@@ -49,7 +55,9 @@ type CreateJobResponse struct {
 
 // RunJobRequest is the request body for submitting a new execution of a job.
 type RunJobRequest struct {
-	ScheduledAt *time.Time `json:"scheduled_at"`
+	ScheduledAt     *time.Time        `json:"scheduled_at"`
+	CallbackURL     *string           `json:"callback_url,omitempty"`
+	CallbackHeaders map[string]string `json:"callback_headers,omitempty"`
 }
 
 // RunJobResponse is the response body after running a job.
@@ -69,16 +77,18 @@ type JobStatusResponse struct {
 
 // ExecutionResponse represents an execution in API responses.
 type ExecutionResponse struct {
-	ID          string          `json:"id"`
-	Status      string          `json:"status"`
-	Priority    int             `json:"priority"`
-	Attempt     int             `json:"attempt"`
-	ScheduledAt *time.Time      `json:"scheduled_at"`
-	StartedAt   *time.Time      `json:"started_at,omitempty"`
-	CompletedAt *time.Time      `json:"completed_at,omitempty"`
-	ExitCode    *int            `json:"exit_code,omitempty"`
-	Error       *string         `json:"error,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
+	ID             string          `json:"id"`
+	Status         string          `json:"status"`
+	Priority       int             `json:"priority"`
+	Attempt        int             `json:"attempt"`
+	ScheduledAt    *time.Time      `json:"scheduled_at"`
+	StartedAt      *time.Time      `json:"started_at,omitempty"`
+	CompletedAt    *time.Time      `json:"completed_at,omitempty"`
+	ExitCode       *int            `json:"exit_code,omitempty"`
+	Error          *string         `json:"error,omitempty"`
+	Result         json.RawMessage `json:"result,omitempty"`
+	CallbackURL    *string         `json:"callback_url,omitempty"`
+	CallbackStatus string          `json:"callback_status,omitempty"`
 }
 
 // ExecutionResultRequest represents the result of an execution
@@ -148,6 +158,18 @@ type DLQExecutionResponse struct {
 // RetryDQLExecutionResponse represents a retry response for a DLQ execution.
 type RetryDQLExecutionResponse struct {
 	NewExecutionID string `json:"new_execution_id"`
+}
+
+// WebhookPayload represents the payload sent to the webhook URL.
+type WebhookPayload struct {
+	Event       string          `json:"event"` // "execution.completed" | "execution.failed"
+	ExecutionID string          `json:"execution_id"`
+	JobID       string          `json:"job_id"`
+	Status      string          `json:"status"`
+	ExitCode    *int            `json:"exit_code,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Duration    int64           `json:"duration"`
+	Timestamp   time.Time       `json:"timestamp"`
 }
 
 // Priority levels for job execution

@@ -25,6 +25,12 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	callbackHeaders, err := json.Marshal(req.CallbackHeaders)
+	if err != nil {
+		h.httpError(w, "Failed to parse callback headers", http.StatusInternalServerError)
+		return
+	}
+
 	// Generate a secure random API key (32 bytes)
 	rawKeyBytes := make([]byte, 32)
 	if _, err := rand.Read(rawKeyBytes); err != nil {
@@ -51,6 +57,8 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		RateLimit:               rateLimit,
 		RateLimitBurst:          rateLimitBurst,
 		MaxConcurrentExecutions: req.MaxConcurrentExecutions, // 0 = unlimited, so no need to check if empty
+		CallbackURL:             req.CallbackURL,
+		CallbackHeaders:         callbackHeaders,
 		CreatedAt:               time.Now(),
 	}
 
@@ -85,6 +93,12 @@ func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	callbackHeaders, err := json.Marshal(req.CallbackHeaders)
+	if err != nil {
+		h.httpError(w, "Failed to parse callback headers", http.StatusInternalServerError)
+		return
+	}
+
 	if req.Name != "" {
 		tenant.Name = req.Name
 	}
@@ -100,6 +114,9 @@ func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	if req.MaxConcurrentExecutions != 0 {
 		tenant.MaxConcurrentExecutions = req.MaxConcurrentExecutions
 	}
+
+	tenant.CallbackURL = req.CallbackURL
+	tenant.CallbackHeaders = callbackHeaders
 
 	if err := h.store.UpdateTenant(ctx, tenant); err != nil {
 		h.httpError(w, "Failed to update tenant", http.StatusInternalServerError)

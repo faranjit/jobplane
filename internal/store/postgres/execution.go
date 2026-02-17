@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Execution, error) {
-	query := "SELECT id, job_id, tenant_id, status, priority, attempt, exit_code, error_message, retried_from, created_at, scheduled_at, started_at, finished_at, result FROM executions WHERE id = $1"
+	query := "SELECT * FROM executions WHERE id = $1"
 
 	var execution store.Execution
 
@@ -19,12 +19,24 @@ func (s *Store) GetExecutionByID(ctx context.Context, id uuid.UUID) (*store.Exec
 		&execution.ExitCode, &execution.ErrorMessage, &execution.RetriedFrom,
 		&execution.CreatedAt, &execution.ScheduledAt, &execution.StartedAt,
 		&execution.CompletedAt, &execution.Result,
+		&execution.CallbackURL, &execution.CallbackHeaders, &execution.CallbackStatus,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &execution, nil
+}
+
+func (s *Store) UpdateCallbackStatus(ctx context.Context, executionID uuid.UUID, status string) error {
+	query := "UPDATE executions SET callback_status = $1 WHERE id = $2"
+
+	_, err := s.db.ExecContext(ctx, query, status, executionID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Store) CountRunningExecutions(ctx context.Context, tx store.DBTransaction, tenantID uuid.UUID) (int64, error) {

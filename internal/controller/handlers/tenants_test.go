@@ -25,7 +25,7 @@ func TestCreateTenant(t *testing.T) {
 	}{
 		{
 			name:           "Success",
-			body:           `{"name": "Acme corp"}`,
+			body:           `{"name": "Acme corp", "callback_url": "https://hooks.example.com/jobs", "callback_headers": {"Authorization": "Bearer abc123"}}`,
 			mockSetup:      func(ms *mockStore) {},
 			expectedStatus: http.StatusCreated,
 			expectedInBody: "api_key",
@@ -104,7 +104,7 @@ func TestUpdateTenant(t *testing.T) {
 	}{
 		{
 			name:           "Success",
-			body:           `{"name": "Acme corp", "rate_limit": 10, "rate_limit_burst": 20, "max_concurrent_executions": 5}`,
+			body:           `{"name": "Acme corp", "rate_limit": 10, "rate_limit_burst": 20, "max_concurrent_executions": 5, "callback_url": "https://hooks.example.com/jobs", "callback_headers": {"Authorization": "Bearer abc123"}}`,
 			mockSetup:      func(ms *mockStore) {},
 			expectedStatus: http.StatusNoContent,
 			callback: func(expected uuid.UUID, actual uuid.UUID) {
@@ -172,8 +172,3 @@ func TestUpdateTenant(t *testing.T) {
 		})
 	}
 }
-
-// curl -X PATCH http://localhost:6161/tenants/10ac19bd-0875-4440-9eea-a340611e506d \
-//   -H "Authorization: Bearer jp_88738e9cfad109dc3a646422c579a0e2823653483233c1fd0578d51078012310" \
-//   -H "Content-Type: application/json" \
-//   -d '{"rate_limit": 10, "rate_limit_burst": 20}'

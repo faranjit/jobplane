@@ -9,6 +9,7 @@ import (
 )
 
 var scheduleAt string
+var callbackURL string
 
 var runCmd = &cobra.Command{
 	Use:   "run [job_id]",
@@ -36,6 +37,10 @@ var runCmd = &cobra.Command{
 			req.ScheduledAt = &t
 		}
 
+		if callbackURL != "" {
+			req.CallbackURL = &callbackURL
+		}
+
 		client := NewJobClient(url, token)
 		result, err := client.RunJob(jobID, req)
 		if err != nil {
@@ -53,5 +58,6 @@ var runCmd = &cobra.Command{
 
 func init() {
 	runCmd.Flags().StringVar(&scheduleAt, "schedule", "", "Schedule execution at specific time (RFC3339)")
+	runCmd.Flags().StringVar(&callbackURL, "callback-url", "", "Callback URL to notify when job is completed")
 	rootCmd.AddCommand(runCmd)
 }

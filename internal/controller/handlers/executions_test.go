@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"jobplane/internal/controller/middleware"
@@ -275,6 +276,7 @@ func TestInternalHeartbeat(t *testing.T) {
 
 func TestInternalUpdateResult(t *testing.T) {
 	executionID := uuid.New()
+	callbackURL := "https://hooks.example.com/jobs"
 
 	tests := []struct {
 		name           string
@@ -282,20 +284,48 @@ func TestInternalUpdateResult(t *testing.T) {
 		body           string
 		mockSetup      func(*mockStore)
 		expectedStatus int
+		expectWebhook  bool
 	}{
 		{
-			name:           "Success - Completed",
-			executionID:    executionID.String(),
-			body:           `{"exit_code": 0, "error": ""}`,
-			mockSetup:      func(m *mockStore) {},
+			name:        "Success - Completed with callback",
+			executionID: executionID.String(),
+			body:        `{"exit_code": 0, "error": ""}`,
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:          executionID,
+					CallbackURL: &callbackURL,
+					Status:      store.ExecutionStatusCompleted,
+				}
+			},
 			expectedStatus: http.StatusOK,
+			expectWebhook:  true,
 		},
 		{
-			name:           "Success - Failed",
-			executionID:    executionID.String(),
-			body:           `{"exit_code": 1, "error": "process crashed"}`,
-			mockSetup:      func(m *mockStore) {},
+			name:        "Success - Completed without callback",
+			executionID: executionID.String(),
+			body:        `{"exit_code": 0, "error": ""}`,
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:     executionID,
+					Status: store.ExecutionStatusCompleted,
+				}
+			},
 			expectedStatus: http.StatusOK,
+			expectWebhook:  false,
+		},
+		{
+			name:        "Success - Failed with callback",
+			executionID: executionID.String(),
+			body:        `{"exit_code": 1, "error": "process crashed"}`,
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:          executionID,
+					CallbackURL: &callbackURL,
+					Status:      store.ExecutionStatusFailed,
+				}
+			},
+			expectedStatus: http.StatusOK,
+			expectWebhook:  true,
 		},
 		{
 			name:           "Invalid UUID",
@@ -303,6 +333,7 @@ func TestInternalUpdateResult(t *testing.T) {
 			body:           `{"exit_code": 0}`,
 			mockSetup:      func(m *mockStore) {},
 			expectedStatus: http.StatusBadRequest,
+			expectWebhook:  false,
 		},
 		{
 			name:           "Invalid Body",
@@ -310,6 +341,7 @@ func TestInternalUpdateResult(t *testing.T) {
 			body:           `{invalid-json}`,
 			mockSetup:      func(m *mockStore) {},
 			expectedStatus: http.StatusBadRequest,
+			expectWebhook:  false,
 		},
 		{
 			name:        "Store Complete Error",
@@ -319,6 +351,7 @@ func TestInternalUpdateResult(t *testing.T) {
 				m.completeErr = errors.New("db failed")
 			},
 			expectedStatus: http.StatusInternalServerError,
+			expectWebhook:  false,
 		},
 		{
 			name:        "Store Fail Error",
@@ -328,6 +361,7 @@ func TestInternalUpdateResult(t *testing.T) {
 				m.failErr = errors.New("db failed")
 			},
 			expectedStatus: http.StatusInternalServerError,
+			expectWebhook:  false,
 		},
 	}
 
@@ -337,7 +371,8 @@ func TestInternalUpdateResult(t *testing.T) {
 			if tt.mockSetup != nil {
 				tt.mockSetup(mock)
 			}
-			h := New(mock, HandlerConfig{})
+			wd := &mockWebhookDispatcher{}
+			h := New(mock, HandlerConfig{}).WithWebhook(wd)
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("PUT /internal/executions/{id}/result", h.InternalUpdateResult)
@@ -350,6 +385,16 @@ func TestInternalUpdateResult(t *testing.T) {
 			if rr.Code != tt.expectedStatus {
 				t.Errorf("handler returned wrong status code: got %v want %v",
 					rr.Code, tt.expectedStatus)
+			}
+
+			// Give the goroutine a moment to fire
+			time.Sleep(10 * time.Millisecond)
+
+			if tt.expectWebhook && wd.called() == 0 {
+				t.Error("expected webhook to be triggered, but it was not")
+			}
+			if !tt.expectWebhook && wd.called() > 0 {
+				t.Error("expected no webhook trigger, but it was called")
 			}
 		})
 	}
@@ -519,6 +564,91 @@ func TestRetryDLQExecution(t *testing.T) {
 
 			if rr.Code != tt.expectedStatus {
 				t.Errorf("handler returned wrong status code: got %d want %d, body: %s", rr.Code, tt.expectedStatus, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestTriggerWebhook(t *testing.T) {
+	executionID := uuid.New()
+	callbackURL := "https://hooks.example.com/done"
+
+	tests := []struct {
+		name          string
+		webhook       *mockWebhookDispatcher // nil = no dispatcher
+		mockSetup     func(*mockStore)
+		expectDeliver bool
+		expectErr     bool
+	}{
+		{
+			name:    "Delivers when callback URL exists",
+			webhook: &mockWebhookDispatcher{},
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:          executionID,
+					CallbackURL: &callbackURL,
+					Status:      store.ExecutionStatusCompleted,
+				}
+			},
+			expectDeliver: true,
+			expectErr:     false,
+		},
+		{
+			name:    "Skips when callback URL is nil",
+			webhook: &mockWebhookDispatcher{},
+			mockSetup: func(m *mockStore) {
+				m.getExecutionResp = &store.Execution{
+					ID:     executionID,
+					Status: store.ExecutionStatusCompleted,
+				}
+			},
+			expectDeliver: false,
+			expectErr:     false,
+		},
+		{
+			name:          "Returns nil when webhook dispatcher is nil",
+			webhook:       nil,
+			mockSetup:     func(m *mockStore) {},
+			expectDeliver: false,
+			expectErr:     false,
+		},
+		{
+			name:    "Returns error when store fails",
+			webhook: &mockWebhookDispatcher{},
+			mockSetup: func(m *mockStore) {
+				m.getExecutionErr = errors.New("db connection lost")
+			},
+			expectDeliver: false,
+			expectErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockStore{}
+			tt.mockSetup(mock)
+
+			h := New(mock, HandlerConfig{})
+			if tt.webhook != nil {
+				h.WithWebhook(tt.webhook)
+			}
+
+			err := h.triggerWebhook(context.Background(), executionID)
+
+			if tt.expectErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.expectErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			if tt.webhook != nil {
+				if tt.expectDeliver && tt.webhook.called() == 0 {
+					t.Error("expected Deliver to be called, but it was not")
+				}
+				if !tt.expectDeliver && tt.webhook.called() > 0 {
+					t.Error("expected Deliver not to be called, but it was")
+				}
 			}
 		})
 	}

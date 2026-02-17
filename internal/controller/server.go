@@ -6,6 +6,7 @@ import (
 	"jobplane/internal/config"
 	"jobplane/internal/controller/handlers"
 	"jobplane/internal/controller/middleware"
+	"jobplane/internal/controller/webhook"
 	"net/http"
 	"time"
 
@@ -14,7 +15,8 @@ import (
 
 // Server is the HTTP server for the controller API.
 type Server struct {
-	httpServer *http.Server
+	httpServer        *http.Server
+	webhookDispatcher *webhook.Dispatcher
 }
 
 // New creates a new controller server.
@@ -23,11 +25,13 @@ func New(addr string, store handlers.StoreFactory, config *config.Config, metric
 	authMW := middleware.AuthMiddleware(store)
 	rateMW := rateLimiter.Middleware()
 
+	webhookDispatcher := webhook.NewDispatcher(store)
+
 	h := handlers.New(store, handlers.HandlerConfig{
 		VisibilityExtension: config.HeartVisibilityExtension,
 	}).WithCallbacks(handlers.Callbacks{
 		OnTenantUpdated: rateLimiter.InvalidateTenant,
-	})
+	}).WithWebhook(webhookDispatcher)
 
 	mux := http.NewServeMux()
 
@@ -71,6 +75,7 @@ func New(addr string, store handlers.StoreFactory, config *config.Config, metric
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		},
+		webhookDispatcher: webhookDispatcher,
 	}
 }
 
@@ -97,5 +102,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.httpServer.Shutdown(ctx)
+	// stop accepting new requests
+	err := s.httpServer.Shutdown(ctx)
+	// wait for webhook deliveries to complete
+	if wErr := s.webhookDispatcher.Shutdown(ctx); wErr != nil && err == nil {
+		err = wErr
+	}
+	return err
 }

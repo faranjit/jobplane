@@ -12,8 +12,8 @@ import (
 // It converts the command slice into a JSON array for storage.
 func (s *Store) CreateJob(ctx context.Context, tx store.DBTransaction, job *store.Job) error {
 	query := `
-		INSERT INTO jobs (id, tenant_id, name, image, default_command, default_timeout, priority, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO jobs (id, tenant_id, name, image, default_command, default_timeout, priority, callback_url, callback_headers, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	cmdJson, err := json.Marshal(job.Command)
 	if err != nil {
@@ -28,20 +28,39 @@ func (s *Store) CreateJob(ctx context.Context, tx store.DBTransaction, job *stor
 		cmdJson,
 		job.DefaultTimeout,
 		job.Priority,
+		job.CallbackURL,
+		job.CallbackHeaders,
 		job.CreatedAt,
 	)
 	return err
 }
 
+// GetJobByID retrieves a job by its ID.
 func (s *Store) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error) {
 	query := "SELECT * FROM jobs WHERE id = $1"
 
 	var job store.Job
 	var cmdJSON []byte
+	var callbackHeaders *[]byte
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&job.ID, &job.TenantID, &job.Name, &job.Image, &cmdJSON, &job.DefaultTimeout, &job.Priority, &job.CreatedAt)
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&job.ID,
+		&job.TenantID,
+		&job.Name,
+		&job.Image,
+		&cmdJSON,
+		&job.DefaultTimeout,
+		&job.Priority,
+		&job.CreatedAt,
+		&job.CallbackURL,
+		&callbackHeaders,
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	if callbackHeaders != nil {
+		job.CallbackHeaders = *callbackHeaders
 	}
 
 	if len(cmdJSON) > 0 {
@@ -56,8 +75,8 @@ func (s *Store) GetJobByID(ctx context.Context, id uuid.UUID) (*store.Job, error
 // CreateExecution inserts a new execution row.
 func (s *Store) CreateExecution(ctx context.Context, tx store.DBTransaction, execution *store.Execution) error {
 	query := `
-		INSERT INTO executions (id, job_id, tenant_id, status, priority, created_at, scheduled_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO executions (id, job_id, tenant_id, status, priority, callback_url, callback_headers, callback_status, created_at, scheduled_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 
 	_, err := tx.ExecContext(ctx, query,
@@ -66,6 +85,9 @@ func (s *Store) CreateExecution(ctx context.Context, tx store.DBTransaction, exe
 		execution.TenantID,
 		execution.Status,
 		execution.Priority,
+		execution.CallbackURL,
+		execution.CallbackHeaders,
+		execution.CallbackStatus,
 		execution.CreatedAt,
 		execution.ScheduledAt,
 	)
