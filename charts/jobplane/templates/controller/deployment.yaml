@@ -45,6 +45,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "jobplane.fullname" . }}-secret
                   key: SYSTEM_SECRET
+            - name: ARTIFACT_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "jobplane.fullname" . }}-secret
+                  key: ARTIFACT_HMAC_SECRET
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

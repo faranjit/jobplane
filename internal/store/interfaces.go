@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -64,4 +65,36 @@ type JobStore interface {
 
 	// RetryFromDLQ retries an execution from the DLQ.
 	RetryFromDLQ(ctx context.Context, executionID uuid.UUID) (newExecutionID uuid.UUID, err error)
+}
+
+// ArtifactStore handles persistence of artifact metadata in PostgreSQL.
+// This is separate from the StorageBackend (which handles blob storage).
+// Metadata lives in the database so that listing is fast and strongly consistent,
+// regardless of the underlying blob storage backend.
+type ArtifactStore interface {
+	// CreateArtifact inserts a new artifact record with status "pending".
+	// Called at authorize time, before the file is uploaded.
+	CreateArtifact(ctx context.Context, artifact *ExecutionArtifact) error
+
+	// ConfirmArtifact transitions an artifact from "pending" to "confirmed"
+	// and records the backend-specific storage path where the file was written.
+	ConfirmArtifact(ctx context.Context, artifactID uuid.UUID, storagePath string) error
+
+	// GetArtifact retrieves a single artifact by its ID.
+	GetArtifact(ctx context.Context, artifactID uuid.UUID) (*ExecutionArtifact, error)
+
+	// ListArtifactsByExecution returns all confirmed artifacts for an execution.
+	ListArtifactsByExecution(ctx context.Context, executionID uuid.UUID) ([]ExecutionArtifact, error)
+
+	// GetPendingArtifacts returns artifacts still in "pending" status older than the given time.
+	// Used by the cleanup goroutine to sweep orphaned uploads.
+	GetPendingArtifacts(ctx context.Context, olderThan time.Time) ([]ExecutionArtifact, error)
+
+	// DeleteArtifact removes an artifact metadata record.
+	// Called by the cleanup goroutine after deleting the backing file.
+	DeleteArtifact(ctx context.Context, artifactID uuid.UUID) error
+
+	// GetTenantStorageUsage returns the total size in bytes of all artifacts
+	// (both pending and confirmed) for a tenant. Used for quota enforcement.
+	GetTenantStorageUsage(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }

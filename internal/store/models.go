@@ -57,6 +57,25 @@ type Execution struct {
 	CompletedAt     *time.Time
 }
 
+// ExecutionArtifact represents a file produced by a job execution.
+// Artifacts follow a two-phase lifecycle: they are created with "pending" status
+// at authorization time (before upload), then confirmed after the file has been
+// successfully uploaded and verified. This prevents quota bypass and enables
+// cleanup of orphaned uploads.
+type ExecutionArtifact struct {
+	ID             uuid.UUID // Unique artifact identifier
+	ExecutionID    uuid.UUID // The execution that produced this artifact
+	TenantID       uuid.UUID // Tenant that owns the execution (for multi-tenancy isolation)
+	Filename       string    // Original filename (unique per execution)
+	ContentType    string    // MIME type (e.g., "text/csv", "application/octet-stream")
+	SizeBytes      int64     // Declared file size in bytes
+	StorageBackend string    // Backend type that stores this artifact ("local", "s3")
+	StoragePath    *string   // Backend-specific path to the stored file (nil while pending)
+	Status         string    // Lifecycle status: "pending" or "confirmed"
+	CreatedAt      time.Time // When the artifact was authorized
+	UpdatedAt      time.Time // Last status change timestamp
+}
+
 type LogEntry struct {
 	ID          int64
 	ExecutionID uuid.UUID
@@ -87,6 +106,18 @@ const (
 	ExecutionStatusCompleted ExecutionStatus = "SUCCEEDED"
 	ExecutionStatusFailed    ExecutionStatus = "FAILED"
 	ExecutionStatusCancelled ExecutionStatus = "CANCELLED"
+)
+
+// Artifact lifecycle statuses.
+const (
+	// ExecutionArtifactStatusPending indicates the artifact has been authorized but not yet uploaded.
+	// Pending artifacts count toward tenant storage quotas and are cleaned up if not confirmed
+	// within the configured TTL (artifact_pending_ttl).
+	ExecutionArtifactStatusPending = "pending"
+
+	// ExecutionArtifactStatusConfirmed indicates the artifact has been successfully uploaded
+	// and verified. Only confirmed artifacts are visible in listing endpoints.
+	ExecutionArtifactStatusConfirmed = "confirmed"
 )
 
 const (

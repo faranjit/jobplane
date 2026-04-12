@@ -6,7 +6,7 @@ CREATE TABLE tenants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     api_key_hash TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 2. Jobs (Definitions)
@@ -18,7 +18,7 @@ CREATE TABLE jobs (
     default_command JSONB,
     default_timeout INT DEFAULT 300, -- 5 mins
     priority INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 3. Executions (State/History)
@@ -32,10 +32,10 @@ CREATE TABLE executions (
     exit_code INT,
     error_message TEXT,
     retried_from UUID REFERENCES executions(id), -- Links to original failed execution if retried from DLQ
-    created_at TIMESTAMP DEFAULT NOW(),
-    scheduled_at TIMESTAMP,
-    started_at TIMESTAMP,
-    finished_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    scheduled_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
 );
 
 -- 4. Execution Queue (The Mechanism)
@@ -46,8 +46,8 @@ CREATE TABLE execution_queue (
     payload JSONB NOT NULL,
     priority INT NOT NULL DEFAULT 0,
     attempt INT DEFAULT 0,
-    visible_after TIMESTAMP DEFAULT NOW(), -- For retry/backoff
-    created_at TIMESTAMP DEFAULT NOW()
+    visible_after TIMESTAMPTZ DEFAULT NOW(), -- For retry/backoff
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 5. ExecutionLogs
@@ -55,7 +55,7 @@ CREATE TABLE execution_logs (
     id BIGSERIAL PRIMARY KEY,
     execution_id UUID REFERENCES executions(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 6. Dead Letter Queue (Failed executions after max retries)
@@ -66,7 +66,7 @@ CREATE TABLE execution_dlq (
     payload JSONB NOT NULL,
     error_message TEXT,
     attempts INT NOT NULL,
-    failed_at TIMESTAMP DEFAULT NOW()
+    failed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Primary dequeue index: covers WHERE visible_after <= NOW() ORDER BY priority DESC, created_at ASC

@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"jobplane/internal/artifact"
 	"jobplane/internal/store"
 	"jobplane/pkg/api"
 	"net/http"
@@ -20,11 +21,14 @@ type StoreFactory interface {
 	store.JobStore
 	store.TenantStore
 	store.Queue
+	store.ArtifactStore
 }
 
 // HandlerConfig holds configuration related to handlers.
 type HandlerConfig struct {
-	VisibilityExtension time.Duration // How long to extend visibility on heartbeat (default: 5m)
+	VisibilityExtension    time.Duration // How long to extend visibility on heartbeat (default: 5m)
+	ArtifactMaxSizeBytes   int64         // Maximum allowed artifact upload size in bytes (default: 50MB)
+	ArtifactStorageBackend string        // Storage backend type recorded on artifact metadata ("local", "s3")
 }
 
 // Handlers holds all HTTP handlers and their dependencies.
@@ -33,6 +37,7 @@ type Handlers struct {
 	config    HandlerConfig
 	callbacks Callbacks
 	webhook   WebhookDispatcher
+	artifacts artifact.StorageBackend
 }
 
 type WebhookDispatcher interface {
@@ -57,8 +62,15 @@ func (h *Handlers) WithCallbacks(c Callbacks) *Handlers {
 	return h
 }
 
+// WithWebhook returns a new Handlers instance with the given webhook dispatcher.
 func (h *Handlers) WithWebhook(wd WebhookDispatcher) *Handlers {
 	h.webhook = wd
+	return h
+}
+
+// WithArtifacts configures the artifact storage backend for artifact upload/download URL generation.
+func (h *Handlers) WithArtifacts(sb artifact.StorageBackend) *Handlers {
+	h.artifacts = sb
 	return h
 }
 

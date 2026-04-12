@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"jobplane/internal/artifact"
 	"jobplane/internal/config"
 	"jobplane/internal/controller/handlers"
 	"jobplane/internal/controller/middleware"
@@ -31,7 +32,8 @@ func New(addr string, store handlers.StoreFactory, config *config.Config, metric
 		VisibilityExtension: config.HeartVisibilityExtension,
 	}).WithCallbacks(handlers.Callbacks{
 		OnTenantUpdated: rateLimiter.InvalidateTenant,
-	}).WithWebhook(webhookDispatcher)
+	}).WithWebhook(webhookDispatcher).
+		WithArtifacts(artifact.NewStorageBackend(config))
 
 	mux := http.NewServeMux()
 

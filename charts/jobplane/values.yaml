@@ -135,3 +135,16 @@ serviceAccount:
 service:
   # -- Service type for controller
   type: ClusterIP
+
+# -- Artifact storage configuration
+artifact:
+  # -- Backend: local or s3(future)
+  storageBackend: "local"
+  # -- Local FS root
+  storagePath: "./artifacts"
+  # -- Max size in bytes (default 50MB)
+  maxSizeBytes: 52428800
+  # -- HMAC secret for signing
+  hmacSecret: ""
+  # -- Cleanup pending artifacts after this duration
+  pendingTTL: "15m"

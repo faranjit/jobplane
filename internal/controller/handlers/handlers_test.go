@@ -43,6 +43,8 @@ func (m *mockTx) Rollback() error { return nil }
 
 // Mock Store
 type mockStore struct {
+	store.ArtifactStore // Embedded to satisfy StoreFactory without bloating this file
+
 	// Job Hooks
 	beginTxErr     error
 	createJobErr   error

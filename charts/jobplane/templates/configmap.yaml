@@ -21,3 +21,9 @@ data:
 
   # Observability
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otelEndpoint | quote }}
+
+  # Artifact storage configuration
+  ARTIFACT_STORAGE_BACKEND: {{ .Values.artifact.storageBackend | quote }}
+  ARTIFACT_STORAGE_PATH: {{ .Values.artifact.storagePath | quote }}
+  ARTIFACT_MAX_SIZE_BYTES: {{ .Values.artifact.maxSizeBytes | quote }}
+  ARTIFACT_PENDING_TTL: {{ .Values.artifact.pendingTTL | quote }}

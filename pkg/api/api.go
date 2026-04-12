@@ -172,6 +172,25 @@ type WebhookPayload struct {
 	Timestamp   time.Time       `json:"timestamp"`
 }
 
+// AuthorizeArtifactRequest is sent by the worker to request permission to upload an artifact.
+// The controller validates the request, creates a pending artifact record, and returns
+// a backend-specific upload URL.
+type AuthorizeArtifactRequest struct {
+	Filename    string `json:"filename"`     // Name of the artifact file (must be unique per execution)
+	ContentType string `json:"content_type"` // MIME type of the file
+	SizeBytes   int64  `json:"size_bytes"`   // Declared file size (validated against max limit)
+}
+
+// AuthorizeArtifactResponse is returned by the controller after a successful authorization.
+// The worker uses the upload URL and method to upload the artifact bytes directly,
+// without knowing which storage backend is active.
+type AuthorizeArtifactResponse struct {
+	ArtifactID string `json:"artifact_id"` // Unique identifier for the artifact record
+	UploadURL  string `json:"upload_url"`  // URL to PUT the artifact bytes to
+	Method     string `json:"method"`      // HTTP method to use (typically "PUT")
+	ExpiresIn  int64  `json:"expires_in"`  // Seconds until the upload URL expires
+}
+
 // Priority levels for job execution
 const (
 	PriorityLow      = 0

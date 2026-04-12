@@ -57,3 +57,16 @@ runtime: "docker"
 # OpenTelemetry collector endpoint
 # Env: OTEL_EXPORTER_OTLP_ENDPOINT
 otel_endpoint: "localhost:4317"
+
+# Artifact storage configuration
+# Env: ARTIFACT_STORAGE_BACKEND
+artifact_storage_backend: "local"
+# Env: ARTIFACT_STORAGE_PATH
+artifact_storage_path: "./artifacts"
+# Env: ARTIFACT_MAX_SIZE_BYTES
+artifact_max_size_bytes: 52428800
+# Env: ARTIFACT_HMAC_SECRET
+artifact_hmac_secret: "secret"
+# Env: ARTIFACT_PENDING_TTL
+artifact_pending_ttl: "15m"
+

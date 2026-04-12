@@ -52,6 +52,13 @@ type Config struct {
 
 	// OpenTelemetry collector endpoint
 	OTELEndpoint string `mapstructure:"otel_endpoint"`
+
+	// Artifact storage configuration
+	ArtifactStorageBackend string        `mapstructure:"artifact_storage_backend"` // local or s3(future)
+	ArtifactStoragePath    string        `mapstructure:"artifact_storage_path"`    // local FS root
+	ArtifactMaxSizeBytes   int64         `mapstructure:"artifact_max_size_bytes"`  // default 52428800 (50MB)
+	ArtifactHMACSecret     string        `mapstructure:"artifact_hmac_secret"`     // required for server-side signing
+	ArtifactPendingTTL     time.Duration `mapstructure:"artifact_pending_ttl"`     // cleanup pending artifacts after 15m by default
 }
 
 // Load reads configuration from file (if provided) and environment variables.
@@ -69,6 +76,10 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("worker_heartbeat_interval", "2m")
 	v.SetDefault("runtime", "docker")
 	v.SetDefault("otel_endpoint", "localhost:4317")
+	v.SetDefault("artifact_storage_backend", "local")
+	v.SetDefault("artifact_storage_path", "./artifacts")
+	v.SetDefault("artifact_max_size_bytes", 52428800)
+	v.SetDefault("artifact_pending_ttl", "15m")
 
 	// Read config file if specified
 	if configPath != "" {
@@ -107,6 +118,11 @@ func Load(configPath string) (*Config, error) {
 	_ = v.BindEnv("kubernetes_cpu_limit", "KUBERNETES_CPU_LIMIT")
 	_ = v.BindEnv("kubernetes_memory_limit", "KUBERNETES_MEMORY_LIMIT")
 	_ = v.BindEnv("otel_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT")
+	_ = v.BindEnv("artifact_storage_backend", "ARTIFACT_STORAGE_BACKEND")
+	_ = v.BindEnv("artifact_storage_path", "ARTIFACT_STORAGE_PATH")
+	_ = v.BindEnv("artifact_max_size_bytes", "ARTIFACT_MAX_SIZE_BYTES")
+	_ = v.BindEnv("artifact_hmac_secret", "ARTIFACT_HMAC_SECRET")
+	_ = v.BindEnv("artifact_pending_ttl", "ARTIFACT_PENDING_TTL")
 
 	// Validate required fields
 	if v.GetString("database_url") == "" {
